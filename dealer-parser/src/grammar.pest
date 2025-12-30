@@ -1,0 +1,58 @@
+// Dealer constraint language grammar
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "#" ~ (!"\n" ~ ANY)* }
+
+// Top-level constraint expression
+constraint = { SOI ~ expr ~ EOI }
+
+// Expressions with operator precedence
+expr = { logical_or }
+
+logical_or = { logical_and ~ ("||" ~ logical_and)* }
+logical_and = { logical_not ~ ("&&" ~ logical_not)* }
+logical_not = { "!" ~ logical_not | comparison }
+
+comparison = { additive ~ (cmp_op ~ additive)? }
+additive = { multiplicative ~ (add_op ~ multiplicative)* }
+multiplicative = { unary ~ (mul_op ~ unary)* }
+unary = { "-" ~ unary | primary }
+
+primary = _{
+    function_call
+    | paren_expr
+    | literal
+    | position
+}
+
+paren_expr = { "(" ~ expr ~ ")" }
+
+// Function calls: hcp(north), hearts(south), etc.
+function_call = { function_name ~ "(" ~ expr ~ ")" }
+
+function_name = @{
+    "hcp" | "hearts" | "spades" | "diamonds" | "clubs"
+    | "controls" | "losers" | "winners"
+    | "shape" | "hascard"
+}
+
+// Comparison operators
+cmp_op = {
+    "==" | "!=" | "<=" | ">=" | "<" | ">"
+}
+
+// Arithmetic operators
+add_op = { "+" | "-" }
+mul_op = { "*" | "/" | "%" }
+
+// Positions at the bridge table
+position = @{
+    ^"north" | ^"south" | ^"east" | ^"west"
+    | ^"n" | ^"s" | ^"e" | ^"w"
+}
+
+// Integer literals
+literal = @{ "-"? ~ ASCII_DIGIT+ }
+
+// Identifiers (for future use with variables)
+ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }

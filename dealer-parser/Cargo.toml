@@ -1,0 +1,12 @@
+[package]
+name = "dealer-parser"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+pest = "2.7"
+pest_derive = "2.7"
+dealer-core = { path = "../dealer-core" }
+
+[dev-dependencies]
