@@ -1,17 +1,34 @@
 // Dealer constraint language grammar
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
-COMMENT = _{ "#" ~ (!"\n" ~ ANY)* }
+COMMENT = _{
+    ("#" ~ (!"\n" ~ ANY)*) |
+    ("//" ~ (!"\n" ~ ANY)*) |
+    ("/*" ~ (!"*/" ~ ANY)* ~ "*/")
+}
 
-// Top-level constraint expression
+// Top-level can be a constraint expression or variable assignment
+program = { SOI ~ (statement ~ ("\n" | ";")?)* ~ EOI }
+statement = { assignment | expr }
+assignment = { ident ~ "=" ~ expr }
+
+// Top-level constraint expression (for backward compatibility)
 constraint = { SOI ~ expr ~ EOI }
 
 // Expressions with operator precedence
-expr = { logical_or }
+expr = { ternary }
 
-logical_or = { logical_and ~ ("||" ~ logical_and)* }
-logical_and = { logical_not ~ ("&&" ~ logical_not)* }
-logical_not = { "!" ~ logical_not | comparison }
+// Ternary operator: condition ? true_val : false_val
+ternary = { logical_or ~ ("?" ~ logical_or ~ ":" ~ logical_or)? }
+
+logical_or = { logical_and ~ (or_op ~ logical_and)* }
+logical_and = { logical_not ~ (and_op ~ logical_not)* }
+logical_not = { not_op ~ logical_not | comparison }
+
+// Logical operator keywords
+or_op = { "||" | ^"or" }
+and_op = { "&&" | ^"and" }
+not_op = { "!" | ^"not" }
 
 comparison = { additive ~ (cmp_op ~ additive)? }
 additive = { multiplicative ~ (add_op ~ multiplicative)* }
@@ -21,19 +38,21 @@ unary = { "-" ~ unary | primary }
 primary = _{
     function_call
     | paren_expr
+    | card
     | literal
     | position
+    | ident  // Variable references (must be last to avoid conflicts)
 }
 
 paren_expr = { "(" ~ expr ~ ")" }
 
-// Function calls: hcp(north), hearts(south), etc.
-function_call = { function_name ~ "(" ~ expr ~ ")" }
+// Function calls: hcp(north), hearts(south,spades), hascard(south,AS)
+function_call = { function_name ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
 
 function_name = @{
     "hcp" | "hearts" | "spades" | "diamonds" | "clubs"
     | "controls" | "losers" | "winners"
-    | "shape" | "hascard"
+    | "shape" | "hascard" | "top2" | "top3" | "top4" | "top5"
 }
 
 // Comparison operators
@@ -54,5 +73,14 @@ position = @{
 // Integer literals
 literal = @{ "-"? ~ ASCII_DIGIT+ }
 
-// Identifiers (for future use with variables)
-ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+// Card names: AS, KH, 2C, etc. (rank + suit)
+card = @{
+    rank ~ suit_char
+}
+
+rank = { "A" | "K" | "Q" | "J" | "T" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" }
+suit_char = { "S" | "H" | "D" | "C" }
+
+// Identifiers (for variables)
+// Must come after position, function_name, and card to avoid conflicts
+ident = @{ !(position | function_name) ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
