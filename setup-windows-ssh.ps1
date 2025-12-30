@@ -23,7 +23,7 @@ if ($sshServer.State -ne "Installed") {
     Write-Host "Installing OpenSSH Server..." -ForegroundColor Yellow
     Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
 } else {
-    Write-Host "✓ OpenSSH Server is installed" -ForegroundColor Green
+    Write-Host "[OK] OpenSSH Server is installed" -ForegroundColor Green
 }
 
 # Step 2: Start and configure SSH service
@@ -31,7 +31,7 @@ Write-Host ""
 Write-Host "Step 2: Configuring SSH service..." -ForegroundColor Yellow
 Start-Service sshd
 Set-Service -Name sshd -StartupType 'Automatic'
-Write-Host "✓ SSH service is running and set to start automatically" -ForegroundColor Green
+Write-Host "[OK] SSH service is running and set to start automatically" -ForegroundColor Green
 
 # Step 3: Configure firewall
 Write-Host ""
@@ -39,9 +39,9 @@ Write-Host "Step 3: Checking firewall..." -ForegroundColor Yellow
 $firewallRule = Get-NetFirewallRule -Name *ssh* -ErrorAction SilentlyContinue
 if (-not $firewallRule) {
     New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
-    Write-Host "✓ Firewall rule created" -ForegroundColor Green
+    Write-Host "[OK] Firewall rule created" -ForegroundColor Green
 } else {
-    Write-Host "✓ Firewall rule already exists" -ForegroundColor Green
+    Write-Host "[OK] Firewall rule already exists" -ForegroundColor Green
 }
 
 # Step 4: Determine if current user is Administrator
@@ -66,13 +66,13 @@ if ($isUserAdmin) {
 
     # Create/update authorized_keys file
     Set-Content -Path $authKeysFile -Value $publicKey -Encoding ASCII
-    Write-Host "✓ Created $authKeysFile" -ForegroundColor Green
+    Write-Host "[OK] Created $authKeysFile" -ForegroundColor Green
 
     # Set permissions (CRITICAL!)
     icacls $authKeysFile /inheritance:r | Out-Null
     icacls $authKeysFile /grant "SYSTEM:(F)" | Out-Null
     icacls $authKeysFile /grant "BUILTIN\Administrators:(F)" | Out-Null
-    Write-Host "✓ Set permissions on authorized_keys" -ForegroundColor Green
+    Write-Host "[OK] Set permissions on authorized_keys" -ForegroundColor Green
 
 } else {
     Write-Host "Detected: Regular user account" -ForegroundColor Yellow
@@ -88,19 +88,19 @@ if ($isUserAdmin) {
 
     # Create/update authorized_keys file
     Set-Content -Path $authKeysFile -Value $publicKey -Encoding ASCII
-    Write-Host "✓ Created $authKeysFile" -ForegroundColor Green
+    Write-Host "[OK] Created $authKeysFile" -ForegroundColor Green
 
     # Set permissions
     icacls $authKeysFile /inheritance:r | Out-Null
     icacls $authKeysFile /grant "$env:USERNAME:(F)" | Out-Null
-    Write-Host "✓ Set permissions on authorized_keys" -ForegroundColor Green
+    Write-Host "[OK] Set permissions on authorized_keys" -ForegroundColor Green
 }
 
 # Step 5: Restart SSH service
 Write-Host ""
 Write-Host "Step 5: Restarting SSH service..." -ForegroundColor Yellow
 Restart-Service sshd
-Write-Host "✓ SSH service restarted" -ForegroundColor Green
+Write-Host "[OK] SSH service restarted" -ForegroundColor Green
 
 # Step 6: Display connection info
 Write-Host ""
@@ -118,4 +118,4 @@ Write-Host ""
 Write-Host "Test from your Mac with:" -ForegroundColor Yellow
 Write-Host "  ssh $env:USERNAME@<IP_ADDRESS>" -ForegroundColor White
 Write-Host ""
-Write-Host "If it asks for a password, check the troubleshooting section in WINDOWS_SSH_SETUP.md" -ForegroundColor Yellow
+Write-Host "If it asks for a password, check WINDOWS_SSH_SETUP.md for troubleshooting" -ForegroundColor Yellow
