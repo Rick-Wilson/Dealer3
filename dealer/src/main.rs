@@ -21,12 +21,12 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    // Use provided seed or default to current time
+    // Use provided seed or default to current time (microsecond resolution)
     let seed = args.seed.unwrap_or_else(|| {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
-            .as_secs() as u32
+            .as_micros() as u32
     });
 
     // Read constraint from stdin
