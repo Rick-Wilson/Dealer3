@@ -54,8 +54,9 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             let mut pairs = pair.into_inner();
             let mut expr = build_ast(pairs.next().unwrap())?;
 
-            for next_pair in pairs {
-                let right = build_ast(next_pair)?;
+            while let Some(_op_pair) = pairs.next() {
+                // Skip the operator token (or_op), get the right operand
+                let right = build_ast(pairs.next().unwrap())?;
                 expr = Expr::binary(BinaryOp::Or, expr, right);
             }
             Ok(expr)
@@ -65,8 +66,9 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             let mut pairs = pair.into_inner();
             let mut expr = build_ast(pairs.next().unwrap())?;
 
-            for next_pair in pairs {
-                let right = build_ast(next_pair)?;
+            while let Some(_op_pair) = pairs.next() {
+                // Skip the operator token (and_op), get the right operand
+                let right = build_ast(pairs.next().unwrap())?;
                 expr = Expr::binary(BinaryOp::And, expr, right);
             }
             Ok(expr)

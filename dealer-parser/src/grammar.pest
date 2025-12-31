@@ -16,10 +16,7 @@ assignment = { ident ~ "=" ~ expr }
 constraint = { SOI ~ expr ~ EOI }
 
 // Expressions with operator precedence
-expr = { ternary }
-
-// Ternary operator: condition ? true_val : false_val
-ternary = { logical_or ~ ("?" ~ logical_or ~ ":" ~ logical_or)? }
+expr = { logical_or }
 
 logical_or = { logical_and ~ (or_op ~ logical_and)* }
 logical_and = { logical_not ~ (and_op ~ logical_not)* }
