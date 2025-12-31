@@ -1,7 +1,7 @@
 use clap::Parser;
 use dealer_core::{DealGenerator, Position};
-use dealer_eval::eval_program;
-use dealer_parser::{ActionType, Statement, VulnerabilityType};
+use dealer_eval::{eval, eval_program, EvalContext};
+use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
 use dealer_pbn::{format_oneline, format_printall, format_printew, format_printpbn, format_printcompact, Vulnerability};
 use std::io::{self, Read};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -10,9 +10,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[command(name = "dealer")]
 #[command(about = "Bridge hand generator with constraint evaluation", long_about = None)]
 struct Args {
-    /// Number of deals to produce (defaults to 10, or value from input file if not specified)
-    #[arg(short = 'p', long = "produce")]
+    /// Number of deals to produce (defaults to 40, or value from input file if not specified)
+    /// Mutually exclusive with --generate
+    #[arg(short = 'p', long = "produce", conflicts_with = "generate")]
     produce: Option<usize>,
+
+    /// Maximum number of hands to generate (defaults to 1000000)
+    /// Reports all matching deals found. Mutually exclusive with --produce
+    #[arg(short = 'g', long = "generate", conflicts_with = "produce")]
+    generate: Option<usize>,
 
     /// Random seed for generation (defaults to current time)
     #[arg(short = 's', long = "seed")]
@@ -177,17 +183,35 @@ fn main() {
     let mut dealer_from_input: Option<DealerPosition> = None;
     let mut vuln_from_input: Option<VulnerabilityArg> = None;
 
+    // Track average statements: (label, expression, sum, count)
+    let mut averages: Vec<(Option<String>, Expr, f64, usize)> = Vec::new();
+
+    // Track frequency statements: (label, expression, histogram, range)
+    use std::collections::HashMap;
+    let mut frequencies: Vec<(Option<String>, Expr, HashMap<i32, usize>, Option<(i32, i32)>)> = Vec::new();
+
     for statement in &program.statements {
         match statement {
             Statement::Produce(n) => produce_count_from_input = Some(*n),
-            Statement::Action(action_type) => {
-                format_from_input = Some(match action_type {
-                    ActionType::PrintAll => OutputFormat::PrintAll,
-                    ActionType::PrintEW => OutputFormat::PrintEW,
-                    ActionType::PrintPBN => OutputFormat::PrintPBN,
-                    ActionType::PrintCompact => OutputFormat::PrintCompact,
-                    ActionType::PrintOneLine => OutputFormat::PrintOneLine,
-                });
+            Statement::Action { averages: avg_specs, frequencies: freq_specs, format: action_format } => {
+                // Extract format if present
+                if let Some(action_type) = action_format {
+                    format_from_input = Some(match action_type {
+                        ActionType::PrintAll => OutputFormat::PrintAll,
+                        ActionType::PrintEW => OutputFormat::PrintEW,
+                        ActionType::PrintPBN => OutputFormat::PrintPBN,
+                        ActionType::PrintCompact => OutputFormat::PrintCompact,
+                        ActionType::PrintOneLine => OutputFormat::PrintOneLine,
+                    });
+                }
+                // Extract averages if present
+                for avg_spec in avg_specs {
+                    averages.push((avg_spec.label.clone(), avg_spec.expr.clone(), 0.0, 0));
+                }
+                // Extract frequencies if present
+                for freq_spec in freq_specs {
+                    frequencies.push((freq_spec.label.clone(), freq_spec.expr.clone(), HashMap::new(), freq_spec.range));
+                }
             }
             Statement::Dealer(pos) => {
                 dealer_from_input = Some(match pos {
@@ -209,10 +233,19 @@ fn main() {
         }
     }
 
+    // Determine mode: generate or produce
+    let generate_mode = args.generate.is_some();
+    let max_generate = args.generate.unwrap_or(1_000_000); // dealer.exe default for -g
+
     // Command-line flags override input file values
-    let produce_count = args.produce
-        .or(produce_count_from_input)
-        .unwrap_or(40); // dealer.exe default
+    // In generate mode, produce_count is only used if specified in input file
+    let produce_count = if generate_mode {
+        produce_count_from_input.unwrap_or(usize::MAX) // No limit in generate mode
+    } else {
+        args.produce
+            .or(produce_count_from_input)
+            .unwrap_or(40) // dealer.exe default for -p
+    };
 
     let output_format = args.format
         .or(format_from_input)
@@ -233,8 +266,14 @@ fn main() {
     let mut produced = 0;
     let mut generated = 0;
 
-    // Generate deals until we produce the requested number
-    while produced < produce_count {
+    // Generate deals until we reach the limit
+    // In produce mode: stop when we've produced enough matching deals
+    // In generate mode: stop when we've generated enough total deals
+    while if generate_mode {
+        generated < max_generate
+    } else {
+        produced < produce_count
+    } {
         let deal = generator.generate();
         generated += 1;
 
@@ -242,6 +281,38 @@ fn main() {
         match eval_program(&program, &deal) {
             Ok(result) if result != 0 => {
                 // Constraint satisfied (non-zero = true)
+
+                // Calculate averages for this matching deal
+                if !averages.is_empty() || !frequencies.is_empty() {
+                    let ctx = EvalContext::new(&deal);
+
+                    for (_, expr, sum, count) in &mut averages {
+                        match eval(expr, &ctx) {
+                            Ok(val) => {
+                                *sum += val as f64;
+                                *count += 1;
+                            }
+                            Err(e) => {
+                                eprintln!("Average evaluation error: {}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+
+                    // Calculate frequencies for this matching deal
+                    for (_, expr, histogram, _) in &mut frequencies {
+                        match eval(expr, &ctx) {
+                            Ok(val) => {
+                                *histogram.entry(val).or_insert(0) += 1;
+                            }
+                            Err(e) => {
+                                eprintln!("Frequency evaluation error: {}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                }
+
                 let output = match output_format {
                     OutputFormat::PrintAll => format_printall(&deal, produced),
                     OutputFormat::PrintEW => format_printew(&deal),
@@ -271,7 +342,55 @@ fn main() {
     let elapsed = start_time.elapsed().unwrap();
     let elapsed_secs = elapsed.as_secs_f64();
 
+    // Print averages if any were requested
+    if !averages.is_empty() {
+        eprintln!();
+        for (label, _, sum, count) in &averages {
+            let avg = if *count > 0 { sum / (*count as f64) } else { 0.0 };
+            if let Some(label_text) = label {
+                eprintln!("{}: {:.2}", label_text, avg);
+            } else {
+                eprintln!("Average: {:.2}", avg);
+            }
+        }
+    }
+
+    // Print frequency tables if any were requested
+    if !frequencies.is_empty() {
+        for (label, _, histogram, range) in &frequencies {
+            eprintln!();
+            if let Some(label_text) = label {
+                eprintln!("{}:", label_text);
+            } else {
+                eprintln!("Frequency:");
+            }
+
+            // Determine range to display
+            let (min_val, max_val) = if let Some((min, max)) = range {
+                (*min, *max)
+            } else if !histogram.is_empty() {
+                let min = *histogram.keys().min().unwrap();
+                let max = *histogram.keys().max().unwrap();
+                (min, max)
+            } else {
+                (0, 0)
+            };
+
+            // Print frequency table
+            for val in min_val..=max_val {
+                let count = histogram.get(&val).unwrap_or(&0);
+                let percentage = if produced > 0 {
+                    (*count as f64 / produced as f64) * 100.0
+                } else {
+                    0.0
+                };
+                eprintln!("{:3} {:6} ({:5.2}%)", val, count, percentage);
+            }
+        }
+    }
+
     // Print statistics to stderr (like dealer.exe does)
+    eprintln!();
     eprintln!("Generated {} hands", generated);
     eprintln!("Produced {} hands", produced);
     eprintln!("Initial random seed {}", seed);

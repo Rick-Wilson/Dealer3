@@ -24,9 +24,14 @@ dealer_statement = {
 // Action block keywords
 condition_stmt = { ^"condition" ~ expr }
 produce_stmt = { ^"produce" ~ literal }
-action_stmt = { ^"action" ~ action_type }
+action_stmt = { ^"action" ~ action_component ~ ("," ~ action_component)* }
 dealer_stmt = { ^"dealer" ~ compass }
 vulnerable_stmt = { ^"vulnerable" ~ vulnerability }
+
+// Action components (can be comma-separated)
+action_component = { average_spec | frequency_spec | action_type }
+average_spec = { ^"average" ~ string_literal? ~ expr }
+frequency_spec = { ^"frequency" ~ string_literal? ~ expr ~ (literal ~ literal)? }
 
 action_type = @{
     ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline"
@@ -50,7 +55,10 @@ assignment = { ident ~ "=" ~ expr }
 constraint = { SOI ~ expr ~ EOI }
 
 // Expressions with operator precedence
-expr = { logical_or }
+// Ternary has lowest precedence
+expr = { ternary }
+
+ternary = { logical_or ~ ("?" ~ logical_or ~ ":" ~ ternary)? }
 
 logical_or = { logical_and ~ (or_op ~ logical_and)* }
 logical_and = { logical_not ~ (and_op ~ logical_not)* }
@@ -116,6 +124,9 @@ suit = @{
 
 // Integer literals
 literal = @{ "-"? ~ ASCII_DIGIT+ }
+
+// String literals (for average labels)
+string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 
 // Card names: AS, KH, 2C, etc. (rank + suit)
 card = @{

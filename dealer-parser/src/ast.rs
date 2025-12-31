@@ -17,12 +17,33 @@ pub enum Statement {
     Condition(Expr),
     /// Produce statement: produce N
     Produce(usize),
-    /// Action statement: action printpbn/printall/etc
-    Action(ActionType),
+    /// Action statement: action average "label" expr, frequency "label" expr, printpbn/printall/etc
+    /// Can contain multiple averages, frequencies, and optionally a format
+    Action {
+        averages: Vec<AverageSpec>,
+        frequencies: Vec<FrequencySpec>,
+        format: Option<ActionType>,
+    },
     /// Dealer statement: dealer N/E/S/W
     Dealer(Position),
     /// Vulnerable statement: vulnerable none/NS/EW/all
     Vulnerable(VulnerabilityType),
+}
+
+/// An average specification within an action statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct AverageSpec {
+    pub label: Option<String>,
+    pub expr: Expr,
+}
+
+/// A frequency specification within an action statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrequencySpec {
+    pub label: Option<String>,
+    pub expr: Expr,
+    /// Optional range: (min, max) - if None, auto-detect from data
+    pub range: Option<(i32, i32)>,
 }
 
 /// Vulnerability types
@@ -82,6 +103,13 @@ pub enum Expr {
 
     /// Unary operation: op expr
     UnaryOp { op: UnaryOp, expr: Box<Expr> },
+
+    /// Ternary operation: condition ? true_expr : false_expr
+    Ternary {
+        condition: Box<Expr>,
+        true_expr: Box<Expr>,
+        false_expr: Box<Expr>,
+    },
 
     /// Function call: func(args...)
     FunctionCall { func: Function, args: Vec<Expr> },
@@ -280,6 +308,15 @@ impl Expr {
     /// Helper to create a function call with multiple arguments
     pub fn call_multi(func: Function, args: Vec<Expr>) -> Self {
         Expr::FunctionCall { func, args }
+    }
+
+    /// Helper to create a ternary operation
+    pub fn ternary(condition: Expr, true_expr: Expr, false_expr: Expr) -> Self {
+        Expr::Ternary {
+            condition: Box::new(condition),
+            true_expr: Box::new(true_expr),
+            false_expr: Box::new(false_expr),
+        }
     }
 }
 

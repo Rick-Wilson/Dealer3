@@ -77,7 +77,7 @@ pub fn eval_program(program: &Program, deal: &Deal) -> Result<i32, EvalError> {
                 // Condition statement is the constraint to evaluate
                 final_expr = Some(expr);
             }
-            Statement::Produce(_) | Statement::Action(_) | Statement::Dealer(_) | Statement::Vulnerable(_) => {
+            Statement::Produce(_) | Statement::Action { .. } | Statement::Dealer(_) | Statement::Vulnerable(_) => {
                 // These are handled by the CLI, not the evaluator
                 // Just skip them here
             }
@@ -154,6 +154,15 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
             match op {
                 UnaryOp::Negate => Ok(-val),
                 UnaryOp::Not => Ok(if val == 0 { 1 } else { 0 }),
+            }
+        }
+
+        Expr::Ternary { condition, true_expr, false_expr } => {
+            let cond_val = eval(condition, ctx)?;
+            if cond_val != 0 {
+                eval(true_expr, ctx)
+            } else {
+                eval(false_expr, ctx)
             }
         }
 
@@ -1610,5 +1619,103 @@ mod tests {
             }
             _ => panic!("Expected InvalidArgument error"),
         }
+    }
+
+    #[test]
+    fn test_eval_ternary_operator() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Simple ternary: hcp(north) >= 15 ? 1 : 0
+        let ast = parse("hcp(north) >= 15 ? 1 : 0").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+
+        let north_hcp = deal.hand(Position::North).hcp();
+        let expected = if north_hcp >= 15 { 1 } else { 0 };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_ternary_with_arithmetic() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Ternary with arithmetic: hcp(north) >= 20 ? hcp(north) + 100 : hcp(north)
+        let ast = parse("hcp(north) >= 20 ? hcp(north) + 100 : hcp(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+
+        let north_hcp = deal.hand(Position::North).hcp() as i32;
+        let expected = if north_hcp >= 20 { north_hcp + 100 } else { north_hcp };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_nested_ternary() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Nested ternary: hcp(north) >= 15 ? (hearts(north) >= 5 ? 2 : 1) : 0
+        let ast = parse("hcp(north) >= 15 ? (hearts(north) >= 5 ? 2 : 1) : 0").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+
+        let north = deal.hand(Position::North);
+        let expected = if north.hcp() >= 15 {
+            if north.suit_length(Suit::Hearts) >= 5 { 2 } else { 1 }
+        } else {
+            0
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_logical_not() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Test ! operator: !(hcp(north) < 10)
+        let ast = parse("!(hcp(north) < 10)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+
+        let north_hcp = deal.hand(Position::North).hcp();
+        let expected = if north_hcp < 10 { 0 } else { 1 };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_not_keyword() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Test not keyword: not (hcp(north) >= 20)
+        let ast = parse("not (hcp(north) >= 20)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+
+        let north_hcp = deal.hand(Position::North).hcp();
+        let expected = if north_hcp >= 20 { 0 } else { 1 };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_not_in_compound() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Test NOT in compound expression: hcp(north) >= 15 && not (hearts(north) >= 5)
+        let ast = parse("hcp(north) >= 15 && not (hearts(north) >= 5)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+
+        let north = deal.hand(Position::North);
+        let expected = if north.hcp() >= 15 && north.suit_length(Suit::Hearts) < 5 {
+            1
+        } else {
+            0
+        };
+        assert_eq!(result, expected);
     }
 }

@@ -30,7 +30,7 @@ pub fn parse_oneline(input: &str) -> Result<Deal, ParseError> {
 }
 
 /// Format a deal in oneline format
-/// Output: "n CARDS e CARDS s CARDS w CARDS"
+/// Output: "n CARDS e CARDS s CARDS w CARDS\n"
 pub fn format_oneline(deal: &Deal) -> String {
     let mut result = String::new();
 
@@ -43,6 +43,7 @@ pub fn format_oneline(deal: &Deal) -> String {
         result.push_str(&format_hand(deal.hand(pos)));
     }
 
+    result.push('\n');
     result
 }
 

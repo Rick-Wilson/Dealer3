@@ -10,24 +10,24 @@ This document tracks the implementation status of the dealer constraint language
 
 **✅ Core Features Working:**
 - 22 filter functions (hcp, suits, controls, losers, shape, hascard, tens, jacks, queens, kings, aces, top2-5, c13, quality, cccc)
-- All arithmetic, comparison, and logical operators
+- All arithmetic, comparison, and logical operators (including ternary `?:` and logical NOT `!`/`not`)
 - Shape pattern matching (exact, wildcard, any distribution)
 - Card and suit literals
 - Alternative point counts (pt0-pt9)
 - Hand quality evaluation (quality, cccc)
 - Variables (full support for assignments and references)
-- Produce mode (`-p N`) with seeded generation (`-s SEED`)
-- **Action keywords (`condition`, `produce`, `action`)**
+- **Produce mode (`-p N`)** - stop after producing N matching deals (default: 40)
+- **Generate mode (`-g N`)** - generate N total deals, report all matches (default: 1,000,000)
+- Seeded generation (`-s SEED`)
+- **Action keywords (`condition`, `produce`, `action`, `dealer`, `vulnerable`)**
 - **Print formats (printall, printew, printpbn, printcompact, printoneline)**
 - **Duration logging (performance tracking)**
 
 **❌ Not Yet Implemented:**
 - Advanced functions (tricks, score, imps)
-- Statistical actions (average, frequency)
-- Generate mode (`-g N`)
 - Predeal
 
-**Test Status:** 102 tests passing across all crates
+**Test Status:** 111 tests passing across all crates
 
 ---
 
@@ -198,10 +198,33 @@ These functions require a double-dummy solver (DDS library) and are deferred:
 | **Comparison** | `==`, `!=`, `<`, `<=`, `>`, `>=` | ✅ Working |
 | **Logical** | `&&`, `||`, `!` | ✅ Working |
 | **Unary** | `-` (negation), `!` (not) | ✅ Working |
+| **Ternary** | `? :` (condition ? true_expr : false_expr) | ✅ Working |
 
-### ❌ **Not Implemented**
+**Operator Examples:**
 
-- Ternary operator `? :` (removed by design)
+*Logical NOT (`!` and `not` keyword):*
+```
+# Using ! operator
+!(hcp(north) < 10)
+
+# Using not keyword
+not (hcp(north) >= 20)
+
+# In compound expressions
+hcp(north) >= 15 && not (hearts(north) >= 5)
+```
+
+*Ternary operator:*
+```
+# Simple ternary
+hcp(north) >= 15 ? 1 : 0
+
+# Arithmetic in branches
+hcp(north) >= 20 ? hcp(north) + 100 : hcp(north)
+
+# Nested ternary
+hcp(north) >= 15 ? (hearts(north) >= 5 ? 2 : 1) : 0
+```
 
 ---
 
@@ -220,6 +243,9 @@ These functions require a double-dummy solver (DDS library) and are deferred:
 | `action printoneline` | Single-line format | ✅ Working |
 | `dealer N/E/S/W` | Set dealer position (north/east/south/west) | ✅ Working |
 | `vulnerable none/NS/EW/all` | Set vulnerability | ✅ Working |
+| `action average "label" expr` | Calculate average of expression (optional label) | ✅ Working |
+| `action frequency "label" expr` | Display frequency distribution (optional label) | ✅ Working |
+| `action frequency "label" expr min max` | Frequency with explicit range | ✅ Working |
 
 **Example Usage:**
 ```bash
@@ -240,6 +266,20 @@ condition hcp(north) >= 20
 produce 3
 action printcompact" | dealer -p 10 -f oneline -d north -v none
 # Will produce 10 (not 3) in oneline format (not compact) with dealer=north, vulnerable=none
+
+# Average and frequency actions with labeled expressions
+cat << 'EOF' | dealer -p 100
+condition hcp(north) >= 15
+action average "North HCP" hcp(north), frequency "HCP Distribution" hcp(north), printoneline
+EOF
+# Outputs average and frequency table to stderr:
+# North HCP: 16.57
+#
+# HCP Distribution:
+#  15     37 (37.00%)
+#  16     22 (22.00%)
+#  17     15 (15.00%)
+#  ...
 ```
 
 **Implementation Details:**
@@ -249,6 +289,17 @@ action printcompact" | dealer -p 10 -f oneline -d north -v none
 - `action` sets output format (overridden by `-f FORMAT` flag if specified)
 - `dealer` sets dealer position (overridden by `-d POS` flag if specified)
 - `vulnerable` sets vulnerability (overridden by `-v VULN` flag if specified)
+- `average` calculates and displays average of expression over all matching deals
+  - Optional string literal label for labeling output
+  - Printed to stderr after all deals are generated
+  - Multiple average statements can be used in one program
+- `frequency` displays frequency distribution tables for expressions
+  - Optional string literal label for labeling output
+  - Optional explicit range (min max) for table display
+  - Auto-detects range from data if not specified
+  - Shows count and percentage for each value
+  - Printed to stderr after all deals are generated
+  - Multiple frequency statements can be used in one program
 - Precedence: Command-line flags > Input file keywords > Defaults
 - Backward compatible: simple expressions still work with command-line flags
 
@@ -257,10 +308,6 @@ action printcompact" | dealer -p 10 -f oneline -d north -v none
 #### Print Actions
 - `print(expression)` - Print custom expression
 - `printes` - Print in ES format
-
-#### Statistical Actions
-- `average expression` - Calculate averages
-- `frequency expression` - Frequency distribution tables
 
 #### Control Commands
 - `generate N` - Generate exactly N deals (report all matches)
@@ -276,12 +323,38 @@ action printcompact" | dealer -p 10 -f oneline -d north -v none
 
 | Argument | Description | Status |
 |----------|-------------|--------|
-| `-p N` / `--produce N` | Produce N matching deals (default: 40) | ✅ Implemented |
-| `-s SEED` / `--seed SEED` | Set random seed | ✅ Implemented |
+| `-p N` / `--produce N` | Produce N matching deals (default: 40). Mutually exclusive with `-g` | ✅ Implemented |
+| `-g N` / `--generate N` | Generate N total deals, report all matches (default: 1,000,000). Mutually exclusive with `-p` | ✅ Implemented |
+| `-s SEED` / `--seed SEED` | Set random seed for reproducible results | ✅ Implemented |
 | `-f FORMAT` / `--format FORMAT` | Output format (oneline, printall, printew, printpbn, printcompact) | ✅ Implemented |
 | `-d POS` / `--dealer POS` | Dealer position for PBN (N/E/S/W) | ✅ Implemented |
 | `-v VULN` / `--vulnerable VULN` | Vulnerability for PBN (None/NS/EW/All) | ✅ Implemented |
-| `-g N` / `--generate N` | Generate exactly N deals | ❌ Not implemented |
+
+### Produce vs Generate Mode
+
+**Produce Mode (`-p N`, default):**
+- Stops after producing N **matching** deals
+- Use when you want a specific number of hands that meet your criteria
+- Example: `-p 10` generates deals until 10 matches are found
+- Default: 40 deals
+
+**Generate Mode (`-g N`):**
+- Generates exactly N **total** deals and reports all matches
+- Use when you want to test a rare condition or gather statistics
+- Example: `-g 100000` generates 100,000 deals and shows all that match
+- Default: 1,000,000 deals
+
+**Examples:**
+```bash
+# Produce mode: Stop after finding 10 strong openings
+echo "hcp(north) >= 20" | dealer -p 10
+
+# Generate mode: Check 1000 deals for strong openings
+echo "hcp(north) >= 20" | dealer -g 1000
+
+# In generate mode, you might find 0, 1, or many matches
+# In produce mode, you'll always get exactly N matches (unless generation limit reached)
+```
 
 ### Default Behavior
 
@@ -289,7 +362,7 @@ action printcompact" | dealer -p 10 -f oneline -d north -v none
 - **Output**: Oneline format to stdout (default)
 - **Statistics**: Printed to stderr (generated count, produced count, seed, duration)
 - **Seed**: Microsecond-resolution timestamp if not specified
-- **Format priority**: Action keywords override command-line flags
+- **Mode**: Produce mode with 40 deals (unless `-g` or `produce` keyword specified)
 
 ---
 
@@ -336,8 +409,7 @@ The grammar is then designed to require the `%s` marker for pure-digit shape pat
 
 ### Parser Limitations
 1. ✅ ~~Only parses constraint expressions, not action blocks~~ **IMPLEMENTED**
-2. ✅ ~~No support for full dealer input format~~ **IMPLEMENTED** (`condition`, `produce`, `action` keywords working)
-3. No statistical action parsing (average, frequency)
+2. ✅ ~~No support for full dealer input format~~ **IMPLEMENTED** (`condition`, `produce`, `action`, `average`, `frequency` keywords working)
 
 ### Evaluator Limitations
 1. 22 core functions implemented (hcp, 4 suits, controls, losers, shape, hascard, tens-aces, top2-5, c13, quality, cccc)
@@ -346,11 +418,12 @@ The grammar is then designed to require the `%s` marker for pure-digit shape pat
 4. No statistical aggregation
 
 ### CLI Limitations
-1. Only "produce" mode (no "generate" mode)
+1. ✅ ~~Only "produce" mode (no "generate" mode)~~ **IMPLEMENTED** (Both `-p` produce and `-g` generate modes working)
 2. ✅ ~~Output format hardcoded to printoneline~~ **IMPLEMENTED** (5 formats available via `-f` flag or `action` keyword)
-3. ✅ ~~No action language support~~ **IMPLEMENTED** (condition, produce, action keywords working)
+3. ✅ ~~No action language support~~ **IMPLEMENTED** (condition, produce, action, dealer, vulnerable, average, frequency keywords working)
 4. No predeal support (vulnerability/dealer position only for PBN format output, not constraint evaluation)
-5. No statistical output (average, frequency)
+5. ✅ ~~No average output~~ **IMPLEMENTED** (average action calculates and displays statistics)
+6. ✅ ~~No frequency output~~ **IMPLEMENTED** (frequency action displays distribution tables)
 
 ---
 
@@ -382,22 +455,24 @@ action printpbn    # ✅ Print formats working
 - ✅ Variables and condition expressions fully working
 - ✅ Print format actions fully working (printall, printew, printpbn, printcompact, printoneline)
 - ✅ Produce directive fully working
-- ❌ Statistical actions not yet implemented (average, frequency)
+- ✅ Average action fully working (calculates averages over matching deals)
+- ✅ Frequency action fully working (displays distribution tables with counts and percentages)
 
 ---
 
 ## Next Steps for Full Implementation
 
 ### High Priority
-1. Add `-g` / `--generate` mode
-2. Parse and handle action blocks
-3. Multiple output format support
-4. Statistical actions (average, frequency)
-5. Predeal support
+1. ✅ ~~Add `-g` / `--generate` mode~~ **IMPLEMENTED**
+2. ✅ ~~Parse and handle action blocks~~ **IMPLEMENTED**
+3. ✅ ~~Multiple output format support~~ **IMPLEMENTED**
+4. ✅ ~~Statistical actions (average)~~ **IMPLEMENTED**
+5. ✅ ~~Frequency action~~ **IMPLEMENTED**
+6. Predeal support
 
 ### Medium Priority
-6. Vulnerability/dealer position
-7. Performance optimization for large deal generation
+7. ✅ ~~Vulnerability/dealer position~~ **IMPLEMENTED**
+8. Performance optimization for large deal generation
 
 ### Low Priority
 9. Double-dummy analysis (tricks) - requires DDS library

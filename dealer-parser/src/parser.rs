@@ -83,12 +83,89 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             Ok(Statement::Produce(value))
         }
         Rule::action_stmt => {
-            let action_type_str = inner.into_inner().next().unwrap().as_str();
-            let action_type = ActionType::from_str(action_type_str)
-                .ok_or_else(|| ParseError {
-                    message: format!("Invalid action type: {}", action_type_str),
-                })?;
-            Ok(Statement::Action(action_type))
+            let mut averages = Vec::new();
+            let mut frequencies = Vec::new();
+            let mut format = None;
+
+            // Parse comma-separated action components
+            for component in inner.into_inner() {
+                match component.as_rule() {
+                    Rule::action_component => {
+                        let comp_inner = component.into_inner().next().unwrap();
+                        match comp_inner.as_rule() {
+                            Rule::average_spec => {
+                                let mut parts = comp_inner.into_inner();
+                                let first = parts.next().unwrap();
+
+                                // Check if first element is a string literal (label) or expression
+                                let (label, expr_pair) = if first.as_rule() == Rule::string_literal {
+                                    // Has label - strip quotes
+                                    let label_str = first.as_str();
+                                    let label = label_str[1..label_str.len()-1].to_string();
+                                    (Some(label), parts.next().unwrap())
+                                } else {
+                                    // No label - first element is the expression
+                                    (None, first)
+                                };
+
+                                let expr = build_ast(expr_pair)?;
+                                averages.push(AverageSpec { label, expr });
+                            }
+                            Rule::frequency_spec => {
+                                let mut parts = comp_inner.into_inner();
+                                let first = parts.next().unwrap();
+
+                                // Check if first element is a string literal (label) or expression
+                                let (label, expr_pair) = if first.as_rule() == Rule::string_literal {
+                                    // Has label - strip quotes
+                                    let label_str = first.as_str();
+                                    let label = label_str[1..label_str.len()-1].to_string();
+                                    (Some(label), parts.next().unwrap())
+                                } else {
+                                    // No label - first element is the expression
+                                    (None, first)
+                                };
+
+                                let expr = build_ast(expr_pair)?;
+
+                                // Check for optional range (min max)
+                                let range = if let Some(min_pair) = parts.next() {
+                                    let min = min_pair.as_str().parse::<i32>().map_err(|_| ParseError {
+                                        message: format!("Invalid frequency range min: {}", min_pair.as_str()),
+                                    })?;
+                                    let max = parts.next().unwrap().as_str().parse::<i32>().map_err(|_| ParseError {
+                                        message: format!("Invalid frequency range max"),
+                                    })?;
+                                    Some((min, max))
+                                } else {
+                                    None
+                                };
+
+                                frequencies.push(FrequencySpec { label, expr, range });
+                            }
+                            Rule::action_type => {
+                                let action_type = ActionType::from_str(comp_inner.as_str())
+                                    .ok_or_else(|| ParseError {
+                                        message: format!("Invalid action type: {}", comp_inner.as_str()),
+                                    })?;
+                                format = Some(action_type);
+                            }
+                            _ => {
+                                return Err(ParseError {
+                                    message: format!("Unexpected action component: {:?}", comp_inner.as_rule()),
+                                });
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            message: format!("Unexpected action rule: {:?}", component.as_rule()),
+                        });
+                    }
+                }
+            }
+
+            Ok(Statement::Action { averages, frequencies, format })
         }
         Rule::dealer_stmt => {
             let compass_str = inner.into_inner().next().unwrap().as_str().to_lowercase();
@@ -134,6 +211,21 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
     match pair.as_rule() {
         Rule::expr => build_ast(pair.into_inner().next().unwrap()),
 
+        Rule::ternary => {
+            let mut pairs = pair.into_inner();
+            let condition = build_ast(pairs.next().unwrap())?;
+
+            // Check if there are more elements (the ? and : parts)
+            if let Some(true_pair) = pairs.next() {
+                let true_expr = build_ast(true_pair)?;
+                let false_expr = build_ast(pairs.next().unwrap())?;
+                Ok(Expr::ternary(condition, true_expr, false_expr))
+            } else {
+                // No ternary operator, just pass through the condition
+                Ok(condition)
+            }
+        }
+
         Rule::logical_or => {
             let mut pairs = pair.into_inner();
             let mut expr = build_ast(pairs.next().unwrap())?;
@@ -159,16 +251,17 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         }
 
         Rule::logical_not => {
-            let inner_pairs: Vec<_> = pair.into_inner().collect();
+            let mut inner_pairs = pair.into_inner();
+            let first = inner_pairs.next().unwrap();
 
-            // Check if we have 1 element (no negation, pass through)
-            if inner_pairs.len() == 1 {
-                build_ast(inner_pairs[0].clone())
+            // Check if first element is not_op
+            if first.as_rule() == Rule::not_op {
+                // We have a NOT operation - next element is the operand
+                let operand = build_ast(inner_pairs.next().unwrap())?;
+                Ok(Expr::unary(UnaryOp::Not, operand))
             } else {
-                // TODO: Fix negation support in grammar
-                Err(ParseError {
-                    message: format!("Negation not yet supported"),
-                })
+                // No NOT operator, just pass through to comparison
+                build_ast(first)
             }
         }
 
@@ -545,11 +638,31 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_negation() {
-        // For now, skip this test - negation needs grammar fix
-        // The grammar `"!" ~ logical_not | comparison` isn't working as expected
-        // Will fix in next iteration
-        // let ast = parse("!(hcp(north) < 10)").unwrap();
+    fn test_parse_logical_not() {
+        // Test ! operator
+        let ast = parse("!(hcp(north) < 10)").unwrap();
+        match ast {
+            Expr::UnaryOp { op, expr } => {
+                assert_eq!(op, UnaryOp::Not);
+                match *expr {
+                    Expr::BinaryOp { op, .. } => assert_eq!(op, BinaryOp::Lt),
+                    _ => panic!("Expected binary op in NOT operand"),
+                }
+            }
+            _ => panic!("Expected unary NOT operation"),
+        }
+    }
+
+    #[test]
+    fn test_parse_not_keyword() {
+        // Test not keyword
+        let ast = parse("not (hcp(north) < 10)").unwrap();
+        match ast {
+            Expr::UnaryOp { op, .. } => {
+                assert_eq!(op, UnaryOp::Not);
+            }
+            _ => panic!("Expected unary NOT operation"),
+        }
     }
 
     #[test]
@@ -630,6 +743,48 @@ mod tests {
                 _ => panic!("Expected variable reference"),
             },
             _ => panic!("Expected expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ternary_operator() {
+        // Simple ternary
+        let ast = parse("hcp(north) >= 15 ? 1 : 0").unwrap();
+        match ast {
+            Expr::Ternary { condition, true_expr, false_expr } => {
+                // Condition should be a binary op
+                match *condition {
+                    Expr::BinaryOp { op, .. } => assert_eq!(op, BinaryOp::Ge),
+                    _ => panic!("Expected binary op in condition"),
+                }
+                // True branch should be 1
+                match *true_expr {
+                    Expr::Literal(1) => (),
+                    _ => panic!("Expected literal 1 in true branch"),
+                }
+                // False branch should be 0
+                match *false_expr {
+                    Expr::Literal(0) => (),
+                    _ => panic!("Expected literal 0 in false branch"),
+                }
+            }
+            _ => panic!("Expected ternary expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_ternary() {
+        // Nested ternary: hcp(north) >= 15 ? (hearts(north) >= 5 ? 2 : 1) : 0
+        let ast = parse("hcp(north) >= 15 ? (hearts(north) >= 5 ? 2 : 1) : 0").unwrap();
+        match ast {
+            Expr::Ternary { true_expr, .. } => {
+                // True branch should be another ternary
+                match *true_expr {
+                    Expr::Ternary { .. } => (),
+                    _ => panic!("Expected nested ternary in true branch"),
+                }
+            }
+            _ => panic!("Expected ternary expression"),
         }
     }
 }
