@@ -1,11 +1,10 @@
 [package]
-name = "dealer-core"
+name = "dealer-pbn"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-gnurandom = { path = "../gnurandom" }
+dealer-core = { path = "../dealer-core" }
 
 [dev-dependencies]
-dealer-pbn = { path = "../dealer-pbn" }

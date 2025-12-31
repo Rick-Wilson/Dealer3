@@ -1,0 +1,9 @@
+[package]
+name = "dealer-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dealer-core = { path = "../dealer-core" }
+dealer-pbn = { path = "../dealer-pbn" }
+gnurandom = { path = "../gnurandom" }

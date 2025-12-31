@@ -110,6 +110,8 @@ impl Default for Deal {
 /// Generator for creating random bridge deals
 pub struct DealGenerator {
     rng: GnuRandom,
+    zero52: [u8; 65536], // Lookup table to avoid modulo operations
+    deck: [u8; 52],      // Persistent deck that gets reshuffled each time
 }
 
 impl DealGenerator {
@@ -117,30 +119,62 @@ impl DealGenerator {
     pub fn new(seed: u32) -> Self {
         let mut rng = GnuRandom::new();
         rng.srandom(seed);
-        DealGenerator { rng }
-    }
 
-    /// Generate a random deal using Fisher-Yates shuffle
-    /// This matches the dealer.exe algorithm
-    pub fn generate(&mut self) -> Deal {
-        // Create array of 52 cards (indices 0-51)
-        let mut deck: [u8; 52] = [0; 52];
+        // Initialize zero52 lookup table (matches dealer.c initialization)
+        // This maps random bits to card indices 0-51 in a repeating pattern
+        // The last 16 entries are 0xFF to prevent bias (65536 % 52 = 16)
+        let mut zero52 = [0u8; 65536];
+        let i_cycle = (65536 / 52) * 52; // = 65520
+        for i in 0..i_cycle {
+            zero52[i] = (i % 52) as u8;
+        }
+        // Fill last 16 positions with 0xFF (will trigger retry in shuffle loop)
+        for i in i_cycle..65536 {
+            zero52[i] = 0xFF;
+        }
+
+        // Initialize deck in suit-rank order (matches newpack in dealer.c)
+        // Clubs 2-A, Diamonds 2-A, Hearts 2-A, Spades 2-A
+        let mut deck = [0u8; 52];
         for i in 0..52 {
             deck[i] = i as u8;
         }
 
-        // Fisher-Yates shuffle
-        for i in (1..52).rev() {
-            // Generate random index from 0 to i (inclusive)
-            let j = (self.rng.next_u32() as usize) % (i + 1);
-            deck.swap(i, j);
+        DealGenerator { rng, zero52, deck }
+    }
+
+    /// Generate a random deal using Knuth's shuffle algorithm
+    /// This exactly matches dealer.exe's shuffle implementation
+    /// NOTE: Each call reshuffles the SAME deck (not a fresh sorted deck)
+    pub fn generate(&mut self) -> Deal {
+        // Knuth's shuffle algorithm (forward iteration, as in dealer.c)
+        // For each position i, swap with a random position j (0 <= j <= 51)
+        // IMPORTANT: We shuffle the existing deck, not a fresh sorted one!
+        for i in 0..52 {
+            // Generate random index using zero52 lookup table
+            // dealer.c uses: k = (RANDOM() >> (31 - RANDBITS));
+            // with RANDBITS=16, this is: k = (RANDOM() >> 15);
+            // The inner do-while loop retries if we get 0xFF (prevents bias)
+            let j = loop {
+                let r = self.rng.next_u32();
+                let k = r >> 15; // Shift right by 15 bits
+                let j = self.zero52[(k & 0xFFFF) as usize]; // NRANDMASK = 0xFFFF for 16-bit RANDBITS
+
+                if j != 0xFF {
+                    break j as usize;
+                }
+                // Retry if j == 0xFF (last 16 entries of zero52 table)
+            };
+
+            // Swap deck[i] with deck[j]
+            self.deck.swap(i, j);
         }
 
         // Distribute cards to hands
         // First 13 to North, next 13 to East, next 13 to South, last 13 to West
         let mut deal = Deal::new();
 
-        for (idx, &card_index) in deck.iter().enumerate() {
+        for (idx, &card_index) in self.deck.iter().enumerate() {
             let card = Card::from_index(card_index).unwrap();
             let position = Position::from_index((idx / 13) as u8).unwrap();
             deal.hand_mut(position).add_card(card);
