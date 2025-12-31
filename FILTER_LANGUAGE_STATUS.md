@@ -20,6 +20,8 @@ weak_hand_south = hcp(south) <= 8
 condition nt_opener_north && weak_hand_south
 ```
 
+**Implementation Model**: Variables are **runtime-evaluated**, not macros. Each variable reference is evaluated in the context of the current deal being analyzed, not textually expanded during parsing. This allows variables to dynamically respond to different hands.
+
 **Status**: ⚠️ **Partially implemented**
 - Grammar has `assignment` and `ident` rules defined
 - Parser can recognize `variable = expression` syntax
@@ -27,10 +29,11 @@ condition nt_opener_north && weak_hand_south
 - **NOT used**: CLI only parses single expressions, not programs
 
 **What's needed**:
-1. Symbol table in evaluator to store variable bindings
-2. Variable lookup during expression evaluation
-3. Support for multi-statement programs (currently only parses single expressions)
-4. Update CLI to parse full programs, not just constraints
+1. Add `Expr::Variable(String)` variant to AST
+2. Symbol table in evaluator to store variable → expression bindings
+3. Variable lookup during expression evaluation (evaluate stored expression each time)
+4. Support for multi-statement programs (currently only parses single expressions)
+5. Update CLI to parse full programs, not just constraints
 
 ---
 
