@@ -6,6 +6,26 @@
 
 This document tracks the implementation status of the dealer constraint language, including both filter functions and action keywords.
 
+### Quick Summary
+
+**✅ Core Features Working:**
+- 10 filter functions (hcp, suits, controls, losers, shape, hascard)
+- All arithmetic, comparison, and logical operators
+- Shape pattern matching (exact, wildcard, any distribution)
+- Card and suit literals
+- Produce mode (`-p N`) with seeded generation (`-s SEED`)
+
+**⚠️ Partially Implemented:**
+- Variables (grammar ready, evaluation not implemented)
+
+**❌ Not Yet Implemented:**
+- Advanced functions (pt0-pt9, top2-5, quality, cccc, tricks, score, imps)
+- Action blocks (print formats, statistics, control commands)
+- Generate mode (`-g N`)
+- Predeal, vulnerability, dealer position
+
+**Test Status:** 58 tests passing across all crates
+
 ---
 
 ## Language Features
@@ -49,17 +69,36 @@ condition nt_opener_north && weak_hand_south
 | `diamonds(position)` | Number of diamonds | ✅ Working |
 | `clubs(position)` | Number of clubs | ✅ Working |
 | `controls(position)` | Control count (A=2, K=1) | ✅ Working |
+| `losers(position)` | Total loser count in hand | ✅ Working |
+| `losers(position, suit)` | Losers in specific suit | ✅ Working |
+| `shape(position, pattern)` | Shape specification | ✅ Working |
+| `hascard(position, card)` | Check for specific card | ✅ Working |
 
-### ⚠️ **Defined but Not Implemented**
+**Loser Count Details:**
+- Uses standard losing trick count algorithm
+- Void: 0 losers
+- Singleton: 0 if Ace, 1 otherwise
+- Doubleton: 0 for AK, 1 for Ax/Kx, 2 otherwise
+- 3+ cards: Start with 3, subtract 1 for each A/K/Q in top 3 positions
+- Examples: `losers(north) <= 7`, `losers(south, spades) == 0`
 
-These are in the AST but return `NotImplemented` errors:
+**Shape Pattern Syntax:**
+- Exact shapes: `shape(north, 5431)` - exactly 5-4-3-1 in S-H-D-C order
+- Wildcard patterns: `shape(south, 54xx)` - 5 spades, 4 hearts, any minors
+- Any distribution: `shape(east, any 4333)` - any 4-3-3-3 regardless of suits
+- Combinations: `shape(west, any 4333 + any 5332 - 5332)` - balanced except exact 5-3-3-2
+- Uses `+` for inclusion, `-` for exclusion
 
-| Function | Description | Status |
-|----------|-------------|--------|
-| `losers(position)` | Loser count | ⚠️ Defined, not evaluated |
-| `winners(position)` | Winner count | ⚠️ Defined, not evaluated |
-| `shape(position, pattern)` | Shape specification | ⚠️ Defined, not evaluated |
-| `hascard(position, card)` | Check for specific card | ⚠️ Defined, not evaluated |
+**Card Syntax:**
+- Format: rank + suit (e.g., AS, KH, TC, 2D)
+- Ranks: A, K, Q, J, T, 9, 8, 7, 6, 5, 4, 3, 2
+- Suits: S (spades), H (hearts), D (diamonds), C (clubs)
+- Example: `hascard(north, AS)` checks if north has ace of spades
+
+**Suit Keywords:**
+- Used as arguments to functions like `losers(position, suit)`
+- Keywords: spades, hearts, diamonds, clubs (case-insensitive)
+- Example: `losers(north, spades) == 0` checks for solid spade suit
 
 ### ❌ **Not Yet Defined**
 
@@ -169,15 +208,16 @@ These are in the AST but return `NotImplemented` errors:
 | `gnurandom` | Exact dealer.exe RNG | ✅ Complete (3 tests) |
 | `dealer-core` | Deal generation | ✅ Complete (13 tests) |
 | `dealer-pbn` | PBN format I/O | ✅ Basic (9 tests) |
-| `dealer-parser` | Constraint parsing | ✅ Basic subset (8 tests) |
-| `dealer-eval` | Expression evaluation | ✅ Basic subset (9 tests) |
+| `dealer-parser` | Constraint parsing | ✅ Expanded (8 tests) |
+| `dealer-eval` | Expression evaluation | ✅ Expanded (18 tests) |
 | `dealer` | CLI application | ✅ Basic (produce mode) |
 
 ### Test Coverage
 
-- **Total Tests**: 49 passing
-- **Coverage**: Basic functionality only
-- **Missing**: Action language, advanced functions, statistics
+- **Total Tests**: 58 passing
+- **New Tests**: 4 tests for losers/hascard, 6 tests for shape
+- **Coverage**: Core constraint functions implemented
+- **Missing**: Action language, statistical functions, advanced evaluations
 
 ---
 
@@ -190,10 +230,10 @@ These are in the AST but return `NotImplemented` errors:
 4. Grammar has `program` and `statement` rules but they're unused
 
 ### Evaluator Limitations
-1. Only 6 functions implemented (hcp, 4 suits, controls)
-2. No shape analysis
-3. No card-specific checks
-4. No double-dummy analysis
+1. 10 core functions implemented (hcp, 4 suits, controls, losers, shape, hascard)
+2. Missing advanced functions (pt0-pt9, top2-top5, quality, cccc)
+3. No double-dummy analysis (tricks)
+4. No scoring functions (score, imps)
 5. No statistical aggregation
 
 ### CLI Limitations
