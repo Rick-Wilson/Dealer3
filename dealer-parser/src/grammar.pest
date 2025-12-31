@@ -35,6 +35,7 @@ unary = { "-" ~ unary | primary }
 primary = _{
     function_call
     | paren_expr
+    | shape_pattern
     | card
     | literal
     | position
@@ -81,3 +82,17 @@ suit_char = { "S" | "H" | "D" | "C" }
 // Identifiers (for variables)
 // Must come after position, function_name, and card to avoid conflicts
 ident = @{ !(position | function_name) ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// Shape patterns: any 4333 + 54xx - any 0xxx
+shape_pattern = { shape_spec ~ (shape_op ~ shape_spec)* }
+
+shape_spec = { shape_any? ~ shape_digits }
+
+shape_any = { ^"any" }
+
+shape_op = { "+" | "-" }
+
+// Shape digits: 4 characters, each either a digit (0-9) or 'x' wildcard
+shape_digits = @{ shape_char ~ shape_char ~ shape_char ~ shape_char }
+
+shape_char = { ASCII_DIGIT | "x" | "X" }

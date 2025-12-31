@@ -14,14 +14,44 @@ pub enum Expr {
     /// Unary operation: op expr
     UnaryOp { op: UnaryOp, expr: Box<Expr> },
 
-    /// Function call: func(arg)
-    FunctionCall { func: Function, arg: Box<Expr> },
+    /// Function call: func(args...)
+    FunctionCall { func: Function, args: Vec<Expr> },
 
     /// Integer literal
     Literal(i32),
 
     /// Position identifier (north, south, east, west)
     Position(Position),
+
+    /// Shape pattern for matching hand distributions
+    ShapePattern(ShapePattern),
+}
+
+/// Shape pattern for hand distribution matching
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapePattern {
+    /// List of shape specifications combined with + and -
+    pub specs: Vec<ShapeSpec>,
+}
+
+/// A single shape specification (possibly with operators)
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapeSpec {
+    /// Whether this is included (+) or excluded (-)
+    pub include: bool,
+    /// The actual shape
+    pub shape: Shape,
+}
+
+/// A shape distribution pattern
+#[derive(Debug, Clone, PartialEq)]
+pub enum Shape {
+    /// Exact shape: "5431" means exactly 5-4-3-1 in that suit order (S-H-D-C)
+    Exact([u8; 4]),
+    /// Wildcard shape: "54xx" means 5 spades, 4 hearts, any distribution in minors
+    Wildcard([Option<u8>; 4]),
+    /// Any distribution: "any 4333" means any hand with 4-3-3-3 distribution regardless of suit order
+    AnyDistribution([u8; 4]),
 }
 
 /// Binary operators
@@ -125,12 +155,17 @@ impl Expr {
         }
     }
 
-    /// Helper to create a function call
+    /// Helper to create a function call with a single argument
     pub fn call(func: Function, arg: Expr) -> Self {
         Expr::FunctionCall {
             func,
-            arg: Box::new(arg),
+            args: vec![arg],
         }
+    }
+
+    /// Helper to create a function call with multiple arguments
+    pub fn call_multi(func: Function, args: Vec<Expr>) -> Self {
+        Expr::FunctionCall { func, args }
     }
 }
 

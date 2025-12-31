@@ -174,13 +174,18 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         Rule::function_call => {
             let mut pairs = pair.into_inner();
             let func_name = pairs.next().unwrap().as_str();
-            let arg = build_ast(pairs.next().unwrap())?;
+
+            // Collect all arguments
+            let mut args = Vec::new();
+            for arg_pair in pairs {
+                args.push(build_ast(arg_pair)?);
+            }
 
             let func = Function::from_str(func_name).ok_or_else(|| ParseError {
                 message: format!("Unknown function: {}", func_name),
             })?;
 
-            Ok(Expr::call(func, arg))
+            Ok(Expr::call_multi(func, args))
         }
 
         Rule::function_name => {
@@ -213,9 +218,108 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             Ok(Expr::Literal(value))
         }
 
+        Rule::shape_pattern => {
+            let mut specs = Vec::new();
+            let mut include = true; // First spec is always included
+
+            for inner_pair in pair.into_inner() {
+                match inner_pair.as_rule() {
+                    Rule::shape_spec => {
+                        let shape = parse_shape_spec(inner_pair)?;
+                        specs.push(ShapeSpec { include, shape });
+                        include = true; // Reset for next spec
+                    }
+                    Rule::shape_op => {
+                        include = inner_pair.as_str() == "+";
+                    }
+                    _ => {}
+                }
+            }
+
+            Ok(Expr::ShapePattern(ShapePattern { specs }))
+        }
+
         _ => Err(ParseError {
             message: format!("Unexpected rule: {:?}", pair.as_rule()),
         }),
+    }
+}
+
+/// Parse a shape specification like "any 4333" or "54xx"
+fn parse_shape_spec(pair: Pair<Rule>) -> Result<Shape, ParseError> {
+    let mut is_any = false;
+    let mut digits_str = "";
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::shape_any => is_any = true,
+            Rule::shape_digits => digits_str = inner.as_str(),
+            _ => {}
+        }
+    }
+
+    let chars: Vec<char> = digits_str.chars().collect();
+    if chars.len() != 4 {
+        return Err(ParseError {
+            message: format!("Shape must be exactly 4 characters, got {}", digits_str),
+        });
+    }
+
+    // Check if any wildcards
+    let has_wildcard = chars.iter().any(|&c| c == 'x' || c == 'X');
+
+    if has_wildcard {
+        // Wildcard pattern
+        let mut pattern = [None; 4];
+        for (i, &ch) in chars.iter().enumerate() {
+            if ch == 'x' || ch == 'X' {
+                pattern[i] = None;
+            } else if ch.is_ascii_digit() {
+                let digit = ch.to_digit(10).unwrap() as u8;
+                if digit > 13 {
+                    return Err(ParseError {
+                        message: format!("Shape digit {} is too large (max 13)", digit),
+                    });
+                }
+                pattern[i] = Some(digit);
+            } else {
+                return Err(ParseError {
+                    message: format!("Invalid character in shape: {}", ch),
+                });
+            }
+        }
+        Ok(Shape::Wildcard(pattern))
+    } else {
+        // Exact or "any" distribution
+        let mut pattern = [0u8; 4];
+        for (i, &ch) in chars.iter().enumerate() {
+            if !ch.is_ascii_digit() {
+                return Err(ParseError {
+                    message: format!("Invalid character in shape: {}", ch),
+                });
+            }
+            let digit = ch.to_digit(10).unwrap() as u8;
+            if digit > 13 {
+                return Err(ParseError {
+                    message: format!("Shape digit {} is too large (max 13)", digit),
+                });
+            }
+            pattern[i] = digit;
+        }
+
+        // Validate that digits sum to 13
+        let sum: u8 = pattern.iter().sum();
+        if sum != 13 {
+            return Err(ParseError {
+                message: format!("Shape digits must sum to 13, got {}", sum),
+            });
+        }
+
+        if is_any {
+            Ok(Shape::AnyDistribution(pattern))
+        } else {
+            Ok(Shape::Exact(pattern))
+        }
     }
 }
 

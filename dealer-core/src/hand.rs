@@ -57,15 +57,21 @@ impl Hand {
         self.cards.iter().map(|c| c.hcp()).sum()
     }
 
-    /// Get the distribution pattern as a sorted array [longest to shortest]
-    /// E.g., [5, 4, 3, 1] for a 5-4-3-1 hand
-    pub fn distribution(&self) -> [usize; 4] {
-        let mut lengths = [
+    /// Get the suit lengths in standard order [S, H, D, C]
+    /// E.g., [5, 4, 3, 1] means 5 spades, 4 hearts, 3 diamonds, 1 club
+    pub fn suit_lengths(&self) -> [usize; 4] {
+        [
             self.suit_length(Suit::Spades),
             self.suit_length(Suit::Hearts),
             self.suit_length(Suit::Diamonds),
             self.suit_length(Suit::Clubs),
-        ];
+        ]
+    }
+
+    /// Get the distribution pattern as a sorted array [longest to shortest]
+    /// E.g., [5, 4, 3, 1] for a 5-4-3-1 hand (regardless of which suits)
+    pub fn distribution(&self) -> [usize; 4] {
+        let mut lengths = self.suit_lengths();
         lengths.sort_by(|a, b| b.cmp(a)); // Sort descending
         lengths
     }
@@ -124,6 +130,44 @@ impl Hand {
         let mut hand = self.clone();
         hand.sort();
         hand
+    }
+
+    /// Check if hand matches an exact shape pattern (S-H-D-C order)
+    /// E.g., [5, 4, 3, 1] matches only hands with exactly 5 spades, 4 hearts, 3 diamonds, 1 club
+    pub fn matches_exact_shape(&self, pattern: &[u8; 4]) -> bool {
+        let lengths = self.suit_lengths();
+        lengths[0] == pattern[0] as usize
+            && lengths[1] == pattern[1] as usize
+            && lengths[2] == pattern[2] as usize
+            && lengths[3] == pattern[3] as usize
+    }
+
+    /// Check if hand matches a wildcard shape pattern
+    /// None means "any length" for that suit
+    /// E.g., [Some(5), Some(4), None, None] matches any hand with 5 spades and 4 hearts
+    pub fn matches_wildcard_shape(&self, pattern: &[Option<u8>; 4]) -> bool {
+        let lengths = self.suit_lengths();
+        for i in 0..4 {
+            if let Some(required) = pattern[i] {
+                if lengths[i] != required as usize {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Check if hand matches a distribution pattern (suit-order independent)
+    /// E.g., [4, 3, 3, 3] matches any hand with one 4-card suit and three 3-card suits
+    pub fn matches_distribution(&self, pattern: &[u8; 4]) -> bool {
+        let mut dist = self.distribution();
+        let mut pat = *pattern;
+        dist.sort_unstable();
+        pat.sort_unstable();
+
+        // Convert usize to u8 for comparison
+        let dist_u8: [u8; 4] = [dist[0] as u8, dist[1] as u8, dist[2] as u8, dist[3] as u8];
+        dist_u8 == pat
     }
 }
 

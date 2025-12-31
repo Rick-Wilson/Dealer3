@@ -1,5 +1,5 @@
 use dealer_core::{Deal, Position};
-use dealer_parser::{BinaryOp, Expr, Function, UnaryOp};
+use dealer_parser::{BinaryOp, Expr, Function, Shape, ShapePattern, UnaryOp};
 
 /// Evaluation error type
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,52 +94,123 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
             }
         }
 
-        Expr::FunctionCall { func, arg } => eval_function(func, arg, ctx),
+        Expr::FunctionCall { func, args } => eval_function(func, args, ctx),
+
+        Expr::ShapePattern(_pattern) => {
+            // Shape patterns shouldn't be evaluated directly, they're arguments to shape()
+            Err(EvalError::InvalidArgument(
+                "Shape pattern can only be used as argument to shape() function".to_string(),
+            ))
+        }
     }
 }
 
 /// Evaluate a function call
-fn eval_function(function: &Function, arg: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
+fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Result<i32, EvalError> {
     match function {
         Function::Hcp => {
-            let position = eval_position_arg(arg, ctx)?;
+            if args.len() != 1 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "hcp".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+            let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.hcp() as i32)
         }
 
         Function::Hearts => {
-            let position = eval_position_arg(arg, ctx)?;
+            if args.len() != 1 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "hearts".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+            let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.suit_length(dealer_core::Suit::Hearts) as i32)
         }
 
         Function::Spades => {
-            let position = eval_position_arg(arg, ctx)?;
+            if args.len() != 1 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "spades".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+            let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.suit_length(dealer_core::Suit::Spades) as i32)
         }
 
         Function::Diamonds => {
-            let position = eval_position_arg(arg, ctx)?;
+            if args.len() != 1 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "diamonds".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+            let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.suit_length(dealer_core::Suit::Diamonds) as i32)
         }
 
         Function::Clubs => {
-            let position = eval_position_arg(arg, ctx)?;
+            if args.len() != 1 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "clubs".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+            let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.suit_length(dealer_core::Suit::Clubs) as i32)
         }
 
         Function::Controls => {
-            let position = eval_position_arg(arg, ctx)?;
+            if args.len() != 1 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "controls".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+            let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.controls() as i32)
         }
 
+        Function::Shape => {
+            if args.len() != 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "shape".to_string(),
+                    expected: 2,
+                    got: args.len(),
+                });
+            }
+            let position = eval_position_arg(&args[0], ctx)?;
+            let pattern = match &args[1] {
+                Expr::ShapePattern(p) => p,
+                _ => {
+                    return Err(EvalError::InvalidArgument(
+                        "Second argument to shape() must be a shape pattern".to_string(),
+                    ))
+                }
+            };
+
+            let hand = ctx.deal.hand(position);
+            let matches = eval_shape_pattern(hand, pattern)?;
+            Ok(if matches { 1 } else { 0 })
+        }
+
         // Not yet implemented
-        Function::Losers | Function::Winners | Function::Shape
-        | Function::HasCard => {
+        Function::Losers | Function::Winners | Function::HasCard => {
             Err(EvalError::NotImplemented(format!("{:?}", function)))
         }
     }
@@ -153,6 +224,33 @@ fn eval_position_arg(arg: &Expr, _ctx: &EvalContext) -> Result<Position, EvalErr
             "Expected position (north, south, east, west)".to_string(),
         )),
     }
+}
+
+/// Evaluate a shape pattern against a hand
+fn eval_shape_pattern(
+    hand: &dealer_core::Hand,
+    pattern: &ShapePattern,
+) -> Result<bool, EvalError> {
+    let mut result = false;
+
+    for spec in &pattern.specs {
+        let matches = match &spec.shape {
+            Shape::Exact(p) => hand.matches_exact_shape(p),
+            Shape::Wildcard(p) => hand.matches_wildcard_shape(p),
+            Shape::AnyDistribution(p) => hand.matches_distribution(p),
+        };
+
+        if spec.include {
+            result = result || matches;
+        } else {
+            // Exclusion: if it matches, we fail
+            if matches {
+                return Ok(false);
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -340,5 +438,119 @@ mod tests {
         let south_hcp = deal.hand(Position::South).hcp();
         let expected = if north_hcp + south_hcp >= 25 { 1 } else { 0 };
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_shape_exact() {
+        // Seed 1 produces north with 5-2-4-2 shape: AKQT3.J6.KJ42.95
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // North has 5 spades, 2 hearts, 4 diamonds, 2 clubs
+        let ast = parse("shape(north, 5242)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 1);
+
+        // Should not match different exact shape
+        let ast = parse("shape(north, 5431)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_shape_any_distribution() {
+        // Find a hand with 4-3-3-3 distribution (balanced)
+        let mut gen = DealGenerator::new(1);
+        let mut found_4333 = false;
+
+        for _ in 0..1000 {
+            let deal = gen.generate();
+            let north = deal.hand(Position::North);
+            let dist = north.distribution();
+
+            if dist == [4, 3, 3, 3] {
+                let ctx = EvalContext::new(&deal);
+                let ast = parse("shape(north, any 4333)").unwrap();
+                let result = eval(&ast, &ctx).unwrap();
+                assert_eq!(result, 1);
+                found_4333 = true;
+                break;
+            }
+        }
+
+        assert!(found_4333, "Should find at least one 4-3-3-3 hand in 1000 deals");
+    }
+
+    #[test]
+    fn test_shape_wildcard() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+        let north = deal.hand(Position::North);
+        let lengths = north.suit_lengths();
+
+        // Build pattern 54xx dynamically based on actual hand
+        if lengths[0] == 5 && lengths[1] == 4 {
+            let ast = parse("shape(north, 54xx)").unwrap();
+            let result = eval(&ast, &ctx).unwrap();
+            assert_eq!(result, 1);
+        }
+
+        // Pattern that definitely won't match
+        let ast = parse("shape(north, xx00)").unwrap(); // No voids in first 2 suits
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_shape_combination() {
+        let mut gen = DealGenerator::new(42);
+        let mut found = false;
+
+        // Find a hand that's balanced (4333 or 4432 or 5332)
+        for _ in 0..1000 {
+            let deal = gen.generate();
+            let north = deal.hand(Position::North);
+            let dist = north.distribution();
+
+            if matches!(dist, [4, 3, 3, 3] | [4, 4, 3, 2] | [5, 3, 3, 2]) {
+                let ctx = EvalContext::new(&deal);
+                let ast = parse("shape(north, any 4333 + any 4432 + any 5332)").unwrap();
+                let result = eval(&ast, &ctx).unwrap();
+                assert_eq!(result, 1);
+                found = true;
+                break;
+            }
+        }
+
+        assert!(found, "Should find balanced hand in 1000 deals");
+    }
+
+    #[test]
+    fn test_shape_exclusion() {
+        // Test that exclusion pattern works
+        let mut gen = DealGenerator::new(1);
+
+        for _ in 0..100 {
+            let deal = gen.generate();
+            let ctx = EvalContext::new(&deal);
+            let north = deal.hand(Position::North);
+            let lengths = north.suit_lengths();
+
+            // any 4333 - 4333 should match 4333 distributions that aren't exactly S=4,H=3,D=3,C=3
+            let ast = parse("shape(north, any 4333 - 4333)").unwrap();
+            let result = eval(&ast, &ctx).unwrap();
+
+            let dist = north.distribution();
+            let is_any_4333 = dist == [4, 3, 3, 3];
+            let is_exact_4333 = lengths == [4, 3, 3, 3];
+
+            if is_any_4333 && !is_exact_4333 {
+                assert_eq!(result, 1, "Should match 4333 distributions except exact 4333");
+            } else if is_exact_4333 {
+                assert_eq!(result, 0, "Should not match exact 4333 (excluded)");
+            }
+        }
     }
 }
