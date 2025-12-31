@@ -218,6 +218,70 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             Ok(Expr::Literal(value))
         }
 
+        Rule::card => {
+            let card_str = pair.as_str();
+            if card_str.len() != 2 {
+                return Err(ParseError {
+                    message: format!("Card must be exactly 2 characters, got {}", card_str),
+                });
+            }
+
+            let chars: Vec<char> = card_str.chars().collect();
+            let rank_char = chars[0];
+            let suit_char = chars[1];
+
+            let rank = match rank_char {
+                'A' => dealer_core::Rank::Ace,
+                'K' => dealer_core::Rank::King,
+                'Q' => dealer_core::Rank::Queen,
+                'J' => dealer_core::Rank::Jack,
+                'T' => dealer_core::Rank::Ten,
+                '9' => dealer_core::Rank::Nine,
+                '8' => dealer_core::Rank::Eight,
+                '7' => dealer_core::Rank::Seven,
+                '6' => dealer_core::Rank::Six,
+                '5' => dealer_core::Rank::Five,
+                '4' => dealer_core::Rank::Four,
+                '3' => dealer_core::Rank::Three,
+                '2' => dealer_core::Rank::Two,
+                _ => {
+                    return Err(ParseError {
+                        message: format!("Invalid rank: {}", rank_char),
+                    })
+                }
+            };
+
+            let suit = match suit_char {
+                'S' => dealer_core::Suit::Spades,
+                'H' => dealer_core::Suit::Hearts,
+                'D' => dealer_core::Suit::Diamonds,
+                'C' => dealer_core::Suit::Clubs,
+                _ => {
+                    return Err(ParseError {
+                        message: format!("Invalid suit: {}", suit_char),
+                    })
+                }
+            };
+
+            Ok(Expr::Card(dealer_core::Card::new(suit, rank)))
+        }
+
+        Rule::suit => {
+            let suit_str = pair.as_str().to_lowercase();
+            let suit = match suit_str.as_str() {
+                "spades" => dealer_core::Suit::Spades,
+                "hearts" => dealer_core::Suit::Hearts,
+                "diamonds" => dealer_core::Suit::Diamonds,
+                "clubs" => dealer_core::Suit::Clubs,
+                _ => {
+                    return Err(ParseError {
+                        message: format!("Unknown suit: {}", suit_str),
+                    })
+                }
+            };
+            Ok(Expr::Suit(suit))
+        }
+
         Rule::shape_pattern => {
             let mut specs = Vec::new();
             let mut include = true; // First spec is always included

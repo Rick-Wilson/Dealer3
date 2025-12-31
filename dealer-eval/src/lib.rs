@@ -1,4 +1,4 @@
-use dealer_core::{Deal, Position};
+use dealer_core::{Card, Deal, Position, Suit};
 use dealer_parser::{BinaryOp, Expr, Function, Shape, ShapePattern, UnaryOp};
 
 /// Evaluation error type
@@ -100,6 +100,20 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
             // Shape patterns shouldn't be evaluated directly, they're arguments to shape()
             Err(EvalError::InvalidArgument(
                 "Shape pattern can only be used as argument to shape() function".to_string(),
+            ))
+        }
+
+        Expr::Card(_card) => {
+            // Cards shouldn't be evaluated directly, they're arguments to hascard()
+            Err(EvalError::InvalidArgument(
+                "Card can only be used as argument to hascard() function".to_string(),
+            ))
+        }
+
+        Expr::Suit(_suit) => {
+            // Suits shouldn't be evaluated directly, they're arguments to suit-specific functions
+            Err(EvalError::InvalidArgument(
+                "Suit can only be used as argument to functions like losers()".to_string(),
             ))
         }
     }
@@ -209,10 +223,44 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             Ok(if matches { 1 } else { 0 })
         }
 
-        // Not yet implemented
-        Function::Losers | Function::Winners | Function::HasCard => {
-            Err(EvalError::NotImplemented(format!("{:?}", function)))
+        Function::Losers => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "losers".to_string(),
+                    expected: 1, // or 2 with suit
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                // Total losers in hand
+                Ok(hand.losers() as i32)
+            } else {
+                // Losers in specific suit
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.losers_in_suit(suit) as i32)
+            }
         }
+
+        Function::HasCard => {
+            if args.len() != 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "hascard".to_string(),
+                    expected: 2,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let card = eval_card_arg(&args[1])?;
+            let hand = ctx.deal.hand(position);
+
+            Ok(if hand.has_card(card) { 1 } else { 0 })
+        }
+
     }
 }
 
@@ -222,6 +270,26 @@ fn eval_position_arg(arg: &Expr, _ctx: &EvalContext) -> Result<Position, EvalErr
         Expr::Position(pos) => Ok(*pos),
         _ => Err(EvalError::InvalidArgument(
             "Expected position (north, south, east, west)".to_string(),
+        )),
+    }
+}
+
+/// Evaluate an argument that should be a suit
+fn eval_suit_arg(arg: &Expr) -> Result<Suit, EvalError> {
+    match arg {
+        Expr::Suit(suit) => Ok(*suit),
+        _ => Err(EvalError::InvalidArgument(
+            "Expected suit (spades, hearts, diamonds, clubs)".to_string(),
+        )),
+    }
+}
+
+/// Evaluate an argument that should be a card
+fn eval_card_arg(arg: &Expr) -> Result<Card, EvalError> {
+    match arg {
+        Expr::Card(card) => Ok(*card),
+        _ => Err(EvalError::InvalidArgument(
+            "Expected card (e.g., AS, KH, TC)".to_string(),
         )),
     }
 }
@@ -552,5 +620,99 @@ mod tests {
                 assert_eq!(result, 0, "Should not match exact 4333 (excluded)");
             }
         }
+    }
+
+    #[test]
+    fn test_losers_total() {
+        // Seed 1 north: AKQT3.J6.KJ42.95
+        // Spades AKQ = 0, Hearts doubleton no honors = 2, Diamonds K = 2, Clubs doubleton no honors = 2
+        // Total = 6 losers
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        let ast = parse("losers(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 6);
+    }
+
+    #[test]
+    fn test_losers_in_suit() {
+        // Test losers in a specific suit
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // North has AKQ in spades → 0 losers
+        let ast = parse("losers(north, spades)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 0);
+
+        // North has J6 in hearts → 2 losers (doubleton without A or K)
+        let ast = parse("losers(north, hearts)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 2);
+    }
+
+    #[test]
+    fn test_hascard() {
+        // Seed 1 north: AKQT3.J6.KJ42.95
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // North has AS
+        let ast = parse("hascard(north, AS)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 1);
+
+        // North doesn't have 2S
+        let ast = parse("hascard(north, 2S)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 0);
+
+        // North has KD
+        let ast = parse("hascard(north, KD)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn test_losers_various_holdings() {
+        use dealer_core::{Card, Hand, Rank, Suit};
+
+        // Test specific loser counts for known holdings
+        let mut hand = Hand::new();
+
+        // AKQxx in spades = 0 losers
+        hand.add_card(Card::new(Suit::Spades, Rank::Ace));
+        hand.add_card(Card::new(Suit::Spades, Rank::King));
+        hand.add_card(Card::new(Suit::Spades, Rank::Queen));
+        hand.add_card(Card::new(Suit::Spades, Rank::Jack));
+        hand.add_card(Card::new(Suit::Spades, Rank::Ten));
+
+        assert_eq!(hand.losers_in_suit(Suit::Spades), 0);
+
+        // Singleton Ace = 0 losers
+        let mut hand2 = Hand::new();
+        hand2.add_card(Card::new(Suit::Hearts, Rank::Ace));
+        assert_eq!(hand2.losers_in_suit(Suit::Hearts), 0);
+
+        // Singleton King = 1 loser
+        let mut hand3 = Hand::new();
+        hand3.add_card(Card::new(Suit::Hearts, Rank::King));
+        assert_eq!(hand3.losers_in_suit(Suit::Hearts), 1);
+
+        // AK doubleton = 0 losers
+        let mut hand4 = Hand::new();
+        hand4.add_card(Card::new(Suit::Diamonds, Rank::Ace));
+        hand4.add_card(Card::new(Suit::Diamonds, Rank::King));
+        assert_eq!(hand4.losers_in_suit(Suit::Diamonds), 0);
+
+        // Qx doubleton = 2 losers
+        let mut hand5 = Hand::new();
+        hand5.add_card(Card::new(Suit::Clubs, Rank::Queen));
+        hand5.add_card(Card::new(Suit::Clubs, Rank::Two));
+        assert_eq!(hand5.losers_in_suit(Suit::Clubs), 2);
     }
 }

@@ -33,12 +33,13 @@ multiplicative = { unary ~ (mul_op ~ unary)* }
 unary = { "-" ~ unary | primary }
 
 primary = _{
-    function_call
+    function_call  // Must be first to parse function(args)
     | paren_expr
     | shape_pattern
     | card
-    | literal
+    | suit  // Suit keywords (spades, hearts, etc) as standalone values
     | position
+    | literal
     | ident  // Variable references (must be last to avoid conflicts)
 }
 
@@ -48,9 +49,9 @@ paren_expr = { "(" ~ expr ~ ")" }
 function_call = { function_name ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
 
 function_name = @{
-    "hcp" | "hearts" | "spades" | "diamonds" | "clubs"
-    | "controls" | "losers" | "winners"
+    "hcp" | "controls" | "losers"
     | "shape" | "hascard" | "top2" | "top3" | "top4" | "top5"
+    | "hearts" | "spades" | "diamonds" | "clubs"  // Must be after suit check in primary
 }
 
 // Comparison operators
@@ -66,6 +67,12 @@ mul_op = { "*" | "/" | "%" }
 position = @{
     ^"north" | ^"south" | ^"east" | ^"west"
     | ^"n" | ^"s" | ^"e" | ^"w"
+}
+
+// Suit names (for functions like losers(north, spades))
+// Use negative lookahead to ensure not followed by '(' (which would be a function call)
+suit = @{
+    (^"spades" | ^"hearts" | ^"diamonds" | ^"clubs") ~ !("(")
 }
 
 // Integer literals

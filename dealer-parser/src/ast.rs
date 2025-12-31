@@ -25,6 +25,12 @@ pub enum Expr {
 
     /// Shape pattern for matching hand distributions
     ShapePattern(ShapePattern),
+
+    /// Card literal (e.g., AS for ace of spades, TC for ten of clubs)
+    Card(dealer_core::Card),
+
+    /// Suit literal (spades, hearts, diamonds, clubs)
+    Suit(dealer_core::Suit),
 }
 
 /// Shape pattern for hand distribution matching
@@ -105,16 +111,13 @@ pub enum Function {
     /// Control count (A=2, K=1)
     Controls,
 
-    /// Losers (future implementation)
+    /// Losers count
     Losers,
 
-    /// Winners (future implementation)
-    Winners,
-
-    /// Shape analysis (future implementation)
+    /// Shape analysis
     Shape,
 
-    /// Has specific card (future implementation)
+    /// Has specific card
     HasCard,
 }
 
@@ -129,7 +132,6 @@ impl Function {
             "clubs" => Some(Function::Clubs),
             "controls" => Some(Function::Controls),
             "losers" => Some(Function::Losers),
-            "winners" => Some(Function::Winners),
             "shape" => Some(Function::Shape),
             "hascard" => Some(Function::HasCard),
             _ => None,

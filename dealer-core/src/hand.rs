@@ -169,6 +169,71 @@ impl Hand {
         let dist_u8: [u8; 4] = [dist[0] as u8, dist[1] as u8, dist[2] as u8, dist[3] as u8];
         dist_u8 == pat
     }
+
+    /// Calculate losers for entire hand
+    /// Uses standard loser count: A/K/Q in top 3 positions reduce losers
+    pub fn losers(&self) -> u8 {
+        self.losers_in_suit(Suit::Spades)
+            + self.losers_in_suit(Suit::Hearts)
+            + self.losers_in_suit(Suit::Diamonds)
+            + self.losers_in_suit(Suit::Clubs)
+    }
+
+    /// Calculate losers in a specific suit
+    /// Rules:
+    /// - Void: 0 losers
+    /// - Singleton: 0 if Ace, 1 otherwise
+    /// - Doubleton: 0 for AK, 1 for Ax or Kx, 2 otherwise
+    /// - 3+ cards: Start with 3, subtract 1 for each A/K/Q in top 3 positions
+    pub fn losers_in_suit(&self, suit: Suit) -> u8 {
+        let mut cards: Vec<Card> = self.cards.iter()
+            .filter(|c| c.suit == suit)
+            .copied()
+            .collect();
+
+        let len = cards.len();
+        if len == 0 {
+            return 0; // Void
+        }
+
+        // Sort by rank descending (Ace first)
+        cards.sort_by(|a, b| b.rank.cmp(&a.rank));
+
+        if len == 1 {
+            // Singleton: 0 if Ace, 1 otherwise
+            if cards[0].rank == Rank::Ace {
+                0
+            } else {
+                1
+            }
+        } else if len == 2 {
+            // Doubleton
+            let has_ace = cards.iter().any(|c| c.rank == Rank::Ace);
+            let has_king = cards.iter().any(|c| c.rank == Rank::King);
+
+            if has_ace && has_king {
+                0
+            } else if has_ace || has_king {
+                1
+            } else {
+                2
+            }
+        } else {
+            // 3+ cards: Count top 3 honors
+            let mut losers = 3;
+            for i in 0..3.min(len) {
+                if matches!(cards[i].rank, Rank::Ace | Rank::King | Rank::Queen) {
+                    losers -= 1;
+                }
+            }
+            losers
+        }
+    }
+
+    /// Check if hand contains a specific card
+    pub fn has_card(&self, card: Card) -> bool {
+        self.cards.contains(&card)
+    }
 }
 
 impl Default for Hand {
