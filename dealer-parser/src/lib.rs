@@ -1,5 +1,7 @@
 mod ast;
 mod parser;
+mod preprocess;
 
 pub use ast::*;
-pub use parser::{parse, ParseError};
+pub use parser::{parse, parse_program, ParseError};
+pub use preprocess::preprocess;

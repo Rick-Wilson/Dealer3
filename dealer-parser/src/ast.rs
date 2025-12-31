@@ -1,5 +1,20 @@
 use dealer_core::Position;
 
+/// A program consists of multiple statements
+#[derive(Debug, Clone, PartialEq)]
+pub struct Program {
+    pub statements: Vec<Statement>,
+}
+
+/// A statement is either an assignment or an expression
+#[derive(Debug, Clone, PartialEq)]
+pub enum Statement {
+    /// Variable assignment: name = expr
+    Assignment { name: String, expr: Expr },
+    /// Standalone expression (the final constraint)
+    Expression(Expr),
+}
+
 /// Abstract Syntax Tree for dealer constraints
 /// This is Clone + Send + Sync so it can be shared across threads
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +46,9 @@ pub enum Expr {
 
     /// Suit literal (spades, hearts, diamonds, clubs)
     Suit(dealer_core::Suit),
+
+    /// Variable reference (e.g., nt_opener, weak_hand)
+    Variable(String),
 }
 
 /// Shape pattern for hand distribution matching
@@ -119,6 +137,34 @@ pub enum Function {
 
     /// Has specific card
     HasCard,
+
+    // Alternative point counts (pt0-pt9)
+    /// Number of tens
+    Tens,
+    /// Number of jacks
+    Jacks,
+    /// Number of queens
+    Queens,
+    /// Number of kings
+    Kings,
+    /// Number of aces
+    Aces,
+    /// Top 2 honors (AK)
+    Top2,
+    /// Top 3 honors (AKQ)
+    Top3,
+    /// Top 4 honors (AKQJ)
+    Top4,
+    /// Top 5 honors (AKQJT)
+    Top5,
+    /// C13 point count (A=6, K=4, Q=2, J=1)
+    C13,
+
+    // Hand quality functions
+    /// Quality metric for a suit (Bridge World Oct 1982)
+    Quality,
+    /// CCCC evaluation algorithm (Bridge World Oct 1982)
+    Cccc,
 }
 
 impl Function {
@@ -134,6 +180,18 @@ impl Function {
             "losers" => Some(Function::Losers),
             "shape" => Some(Function::Shape),
             "hascard" => Some(Function::HasCard),
+            "tens" | "pt0" => Some(Function::Tens),
+            "jacks" | "pt1" => Some(Function::Jacks),
+            "queens" | "pt2" => Some(Function::Queens),
+            "kings" | "pt3" => Some(Function::Kings),
+            "aces" | "pt4" => Some(Function::Aces),
+            "top2" | "pt5" => Some(Function::Top2),
+            "top3" | "pt6" => Some(Function::Top3),
+            "top4" | "pt7" => Some(Function::Top4),
+            "top5" | "pt8" => Some(Function::Top5),
+            "c13" | "pt9" => Some(Function::C13),
+            "quality" => Some(Function::Quality),
+            "cccc" => Some(Function::Cccc),
             _ => None,
         }
     }

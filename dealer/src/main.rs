@@ -1,6 +1,6 @@
 use clap::Parser;
 use dealer_core::DealGenerator;
-use dealer_eval::{eval, EvalContext};
+use dealer_eval::eval_program;
 use dealer_pbn::format_oneline;
 use std::io::{self, Read};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -37,9 +37,12 @@ fn main() {
 
     let constraint_str = constraint_str.trim();
 
-    // Parse the constraint
-    let ast = match dealer_parser::parse(constraint_str) {
-        Ok(ast) => ast,
+    // Preprocess to mark 4-digit numbers in shape() functions
+    let preprocessed = dealer_parser::preprocess(constraint_str);
+
+    // Parse the program (may include variable assignments)
+    let program = match dealer_parser::parse_program(&preprocessed) {
+        Ok(program) => program,
         Err(e) => {
             eprintln!("Parse error: {}", e);
             std::process::exit(1);
@@ -57,9 +60,8 @@ fn main() {
         let deal = generator.generate();
         generated += 1;
 
-        // Evaluate constraint
-        let ctx = EvalContext::new(&deal);
-        match eval(&ast, &ctx) {
+        // Evaluate program (includes variable assignments and final constraint)
+        match eval_program(&program, &deal) {
             Ok(result) if result != 0 => {
                 // Constraint satisfied (non-zero = true)
                 println!("{}", format_oneline(&deal));

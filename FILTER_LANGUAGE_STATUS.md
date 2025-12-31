@@ -9,51 +9,58 @@ This document tracks the implementation status of the dealer constraint language
 ### Quick Summary
 
 **✅ Core Features Working:**
-- 10 filter functions (hcp, suits, controls, losers, shape, hascard)
+- 22 filter functions (hcp, suits, controls, losers, shape, hascard, tens, jacks, queens, kings, aces, top2-5, c13, quality, cccc)
 - All arithmetic, comparison, and logical operators
 - Shape pattern matching (exact, wildcard, any distribution)
 - Card and suit literals
+- Alternative point counts (pt0-pt9)
+- Hand quality evaluation (quality, cccc)
+- Variables (full support for assignments and references)
 - Produce mode (`-p N`) with seeded generation (`-s SEED`)
 
-**⚠️ Partially Implemented:**
-- Variables (grammar ready, evaluation not implemented)
-
 **❌ Not Yet Implemented:**
-- Advanced functions (pt0-pt9, top2-5, quality, cccc, tricks, score, imps)
+- Advanced functions (tricks, score, imps)
 - Action blocks (print formats, statistics, control commands)
 - Generate mode (`-g N`)
 - Predeal, vulnerability, dealer position
 
-**Test Status:** 58 tests passing across all crates
+**Test Status:** 87 tests passing across all crates
 
 ---
 
 ## Language Features
 
-### ⚠️ **User-Defined Expressions (Variables)**
+### ✅ **User-Defined Expressions (Variables)**
 
 The dealer language supports defining reusable expressions:
 
 ```
-nt_opener_north = hcp(north) >= 15 && hcp(north) <= 17 && shape(north, any 4333 + any 4432 + any 5332)
-weak_hand_south = hcp(south) <= 8
-condition nt_opener_north && weak_hand_south
+nt_opener = hcp(north) >= 15 && hcp(north) <= 17 && shape(north, any 4333 + any 4432 + any 5332)
+weak_hand = hcp(south) <= 8
+nt_opener && weak_hand
 ```
 
 **Implementation Model**: Variables are **runtime-evaluated**, not macros. Each variable reference is evaluated in the context of the current deal being analyzed, not textually expanded during parsing. This allows variables to dynamically respond to different hands.
 
-**Status**: ⚠️ **Partially implemented**
-- Grammar has `assignment` and `ident` rules defined
-- Parser can recognize `variable = expression` syntax
-- **NOT evaluated**: No variable storage/lookup in evaluator
-- **NOT used**: CLI only parses single expressions, not programs
+**Status**: ✅ **Fully implemented**
+- `Expr::Variable(String)` variant in AST
+- `Program` and `Statement` types for multi-statement support
+- Symbol table in evaluator (HashMap<String, Expr>)
+- Variable lookup during expression evaluation (evaluates stored expression each time)
+- CLI parses full programs with `parse_program()`, not just single expressions
+- Supports variables referencing other variables (recursive evaluation)
 
-**What's needed**:
-1. Add `Expr::Variable(String)` variant to AST
-2. Symbol table in evaluator to store variable → expression bindings
-3. Variable lookup during expression evaluation (evaluate stored expression each time)
-4. Support for multi-statement programs (currently only parses single expressions)
-5. Update CLI to parse full programs, not just constraints
+**Example Usage**:
+```bash
+# Simple variable
+printf "opener = hcp(north) >= 15\nopener" | dealer -p 10
+
+# Multiple variables
+printf "strong = hcp(north) >= 15\nlong_hearts = hearts(north) >= 5\nstrong && long_hearts" | dealer -p 10
+
+# Variables can reference other variables
+printf "points = hcp(north)\nopener = points >= 15\nopener" | dealer -p 10
+```
 
 ---
 
@@ -73,6 +80,43 @@ condition nt_opener_north && weak_hand_south
 | `losers(position, suit)` | Losers in specific suit | ✅ Working |
 | `shape(position, pattern)` | Shape specification | ✅ Working |
 | `hascard(position, card)` | Check for specific card | ✅ Working |
+| `tens(position)` | Number of tens (pt0) | ✅ Working |
+| `tens(position, suit)` | Tens in specific suit | ✅ Working |
+| `jacks(position)` | Number of jacks (pt1) | ✅ Working |
+| `jacks(position, suit)` | Jacks in specific suit | ✅ Working |
+| `queens(position)` | Number of queens (pt2) | ✅ Working |
+| `queens(position, suit)` | Queens in specific suit | ✅ Working |
+| `kings(position)` | Number of kings (pt3) | ✅ Working |
+| `kings(position, suit)` | Kings in specific suit | ✅ Working |
+| `aces(position)` | Number of aces (pt4) | ✅ Working |
+| `aces(position, suit)` | Aces in specific suit | ✅ Working |
+| `top2(position)` | Top 2 honors AK (pt5) | ✅ Working |
+| `top2(position, suit)` | Top 2 in specific suit | ✅ Working |
+| `top3(position)` | Top 3 honors AKQ (pt6) | ✅ Working |
+| `top3(position, suit)` | Top 3 in specific suit | ✅ Working |
+| `top4(position)` | Top 4 honors AKQJ (pt7) | ✅ Working |
+| `top4(position, suit)` | Top 4 in specific suit | ✅ Working |
+| `top5(position)` | Top 5 honors AKQJT (pt8) | ✅ Working |
+| `top5(position, suit)` | Top 5 in specific suit | ✅ Working |
+| `c13(position)` | C13 points A=6,K=4,Q=2,J=1 (pt9) | ✅ Working |
+| `c13(position, suit)` | C13 points in specific suit | ✅ Working |
+| `quality(position, suit)` | Suit quality metric | ✅ Working |
+| `cccc(position)` | CCCC hand evaluation | ✅ Working |
+
+**Alternative Point Counts (pt0-pt9):**
+The dealer language provides 10 alternative point count functions with readable synonyms:
+- `pt0` / `tens` - Count of tens
+- `pt1` / `jacks` - Count of jacks
+- `pt2` / `queens` - Count of queens
+- `pt3` / `kings` - Count of kings
+- `pt4` / `aces` - Count of aces
+- `pt5` / `top2` - Top 2 honors (A, K)
+- `pt6` / `top3` - Top 3 honors (A, K, Q)
+- `pt7` / `top4` - Top 4 honors (A, K, Q, J)
+- `pt8` / `top5` - Top 5 honors (A, K, Q, J, T)
+- `pt9` / `c13` - C13 point count (A=6, K=4, Q=2, J=1)
+
+Examples: `top3(north) >= 5`, `aces(south, spades) == 1`, `c13(north) + c13(south) >= 40`
 
 **Loser Count Details:**
 - Uses standard losing trick count algorithm
@@ -100,30 +144,43 @@ condition nt_opener_north && weak_hand_south
 - Keywords: spades, hearts, diamonds, clubs (case-insensitive)
 - Example: `losers(north, spades) == 0` checks for solid spade suit
 
+**Hand Quality Metrics (Bridge World Oct 1982):**
+
+The quality and cccc functions implement hand evaluation algorithms from Bridge World, October 1982. Both return values multiplied by 100 to use integer math (e.g., 1500 = 15.00 points).
+
+**Quality Function - `quality(position, suit)`:**
+Evaluates the quality of a specific suit based on length and honor cards.
+- Base values: A=4×SuitFactor, K=3×SuitFactor, Q=2×SuitFactor, J=1×SuitFactor (where SuitFactor = Length × 10)
+- Ten bonus: Full SuitFactor if 2+ higher honors or has J; half otherwise
+- Nine bonus: Half SuitFactor if 2 higher honors, or has T, or has 8
+- Long suit bonus (7+ cards): Adds points for missing honors that would be replaced
+- **Note**: Quality values are multiplied by 100 to use integer math (e.g., 1500 = 15.00 points).
+- Examples:
+  - `quality(north, spades) >= 4000` - Strong spade suit (40.00+ quality points)
+  - `quality(south, hearts) < 100` - Weak heart suit (< 1.00 quality points)
+
+**CCCC Function - `cccc(position)`:**
+Comprehensive hand evaluation combining honor strength, suit quality, and shape.
+- Honor points: A=300, K=200, Q=100, with adjustments for shortage
+  - Singleton K: -150, Singleton Q: -75, Doubleton Q: -25
+  - Unsupported Q (no higher honor): -25
+  - J: +50 if 2 higher honors, +25 if 1 higher
+  - T: +25 if 2 higher honors, +25 if 1 higher + nine
+- Adds suit_quality for each suit
+- Shape points: +100 for each short suit (< 3 cards)
+- Balanced adjustment: -50 if balanced, else ShapePoints - 100
+- **Note**: CCCC values are multiplied by 100 to use integer math (e.g., 1500 = 15.00 points).
+- **Automatic preprocessing**: 4-digit numbers in regular expressions work correctly (e.g., `cccc(north) >= 1500`) thanks to automatic preprocessing that distinguishes shape patterns from numeric literals.
+- Examples:
+  - `cccc(north) >= 1500` - Strong opening hand (15.00+ points)
+  - `cccc(south) + cccc(north) >= 2400` - Game-level partnership (24.00+ combined points)
+
 ### ❌ **Not Yet Defined**
 
-#### Point Counting Functions
-- `pt0(position)` through `pt9(position)` - Alternative point count systems
-- `tens(position)` - Number of tens
-- `jacks(position)` - Number of jacks
-- `queens(position)` - Number of queens
-- `kings(position)` - Number of kings
-- `aces(position)` - Number of aces
-- `c13(position)` - C13 point count
-
-#### Top Cards Functions
-- `top2(position, suit)` - Top 2 cards in suit
-- `top3(position, suit)` - Top 3 cards in suit
-- `top4(position, suit)` - Top 4 cards in suit
-- `top5(position, suit)` - Top 5 cards in suit
-
-#### Hand Quality Functions
-- `quality(position)` - Hand quality metric
-- `cccc(position)` - CCCC evaluation algorithm
-
-#### Advanced Functions
+#### Double-Dummy Analysis Functions (Requires External Library)
+These functions require a double-dummy solver (DDS library) and are deferred:
 - `tricks(position, contract)` - Double-dummy trick count
-- `score(contract, result)` - Contract scoring
+- `score(contract, result)` - Contract scoring (may depend on tricks)
 - `imps(score_diff)` - Convert score to IMPs
 
 ---
@@ -208,16 +265,31 @@ condition nt_opener_north && weak_hand_south
 | `gnurandom` | Exact dealer.exe RNG | ✅ Complete (3 tests) |
 | `dealer-core` | Deal generation | ✅ Complete (13 tests) |
 | `dealer-pbn` | PBN format I/O | ✅ Basic (9 tests) |
-| `dealer-parser` | Constraint parsing | ✅ Expanded (8 tests) |
-| `dealer-eval` | Expression evaluation | ✅ Expanded (18 tests) |
+| `dealer-parser` | Constraint parsing | ✅ Expanded (20 tests) |
+| `dealer-eval` | Expression evaluation | ✅ Expanded (45 tests) |
 | `dealer` | CLI application | ✅ Basic (produce mode) |
 
 ### Test Coverage
 
-- **Total Tests**: 58 passing
-- **New Tests**: 4 tests for losers/hascard, 6 tests for shape
-- **Coverage**: Core constraint functions implemented
-- **Missing**: Action language, statistical functions, advanced evaluations
+- **Total Tests**: 87 passing
+- **Variables**: 9 tests for variable assignment, lookup, and recursive evaluation
+- **Preprocessing**: 7 tests for 4-digit number disambiguation
+- **Quality/CCCC**: 7 tests for hand evaluation functions (2 unit tests, 3 evaluation tests, 2 integration tests)
+- **Coverage**: All core constraint functions, alternative point counts, hand quality metrics, variables, and automatic preprocessing implemented
+- **Missing**: Action language, statistical functions, double-dummy analysis
+
+### Preprocessing System
+
+The parser includes an automatic preprocessing step that solves the ambiguity between 4-digit shape patterns and 4-digit numeric literals:
+
+**Problem**: In PEG parsers, `shape(north, 5242)` and `cccc(north) >= 1500` both contain 4-digit numbers, but only the first should be parsed as a shape pattern.
+
+**Solution**: Before parsing, all input is preprocessed to mark 4-digit numbers inside `shape()` functions with a `%s` prefix:
+- `shape(north, 5242)` → `shape(north, %s5242)` (marked as shape pattern)
+- `cccc(north) >= 1500` → unchanged (numeric literal)
+- `shape(north, any 4333 - 4333)` → `shape(north, any 4333 - %s4333)` (only mark non-"any" patterns)
+
+The grammar is then designed to require the `%s` marker for pure-digit shape patterns, while wildcards (e.g., `54xx`) and "any"-prefixed patterns don't need it. This allows users to write natural expressions like `cccc(north) >= 1500` without workarounds.
 
 ---
 
@@ -225,16 +297,13 @@ condition nt_opener_north && weak_hand_south
 
 ### Parser Limitations
 1. Only parses constraint expressions, not action blocks
-2. No support for variable assignments
-3. No support for multi-statement programs
-4. Grammar has `program` and `statement` rules but they're unused
+2. No support for full dealer input format (e.g., `condition`, `produce`, `action` keywords)
 
 ### Evaluator Limitations
-1. 10 core functions implemented (hcp, 4 suits, controls, losers, shape, hascard)
-2. Missing advanced functions (pt0-pt9, top2-top5, quality, cccc)
-3. No double-dummy analysis (tricks)
-4. No scoring functions (score, imps)
-5. No statistical aggregation
+1. 22 core functions implemented (hcp, 4 suits, controls, losers, shape, hascard, tens-aces, top2-5, c13, quality, cccc)
+2. No double-dummy analysis (tricks)
+3. No scoring functions (score, imps)
+4. No statistical aggregation
 
 ### CLI Limitations
 1. Only "produce" mode (no "generate" mode)
@@ -272,24 +341,20 @@ action
 ## Next Steps for Full Implementation
 
 ### High Priority
-1. Implement `shape()` function (very common constraint)
-2. Implement `hascard()` function
-3. Add `-g` / `--generate` mode
-4. Add losers/winners functions
-5. Parse and handle action blocks
+1. Add `-g` / `--generate` mode
+2. Parse and handle action blocks
+3. Multiple output format support
+4. Statistical actions (average, frequency)
+5. Predeal support
 
 ### Medium Priority
-6. Multiple output format support
-7. Statistical actions (average, frequency)
-8. Alternative point counts (pt0-pt9)
-9. Predeal support
-10. Vulnerability/dealer position
+6. Vulnerability/dealer position
+7. Performance optimization for large deal generation
 
 ### Low Priority
-11. Double-dummy analysis (tricks)
-12. Scoring functions (score, imps)
-13. Top card functions (top2-top5)
-14. Quality metrics (quality, cccc)
+9. Double-dummy analysis (tricks) - requires DDS library
+10. Scoring functions (score, imps)
+11. Additional evaluation metrics
 
 ---
 

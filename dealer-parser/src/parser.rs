@@ -45,6 +45,48 @@ pub fn parse(input: &str) -> Result<Expr, ParseError> {
     build_ast(pair.into_inner().next().unwrap())
 }
 
+/// Parse a program (potentially multi-statement) into a Program AST
+pub fn parse_program(input: &str) -> Result<Program, ParseError> {
+    let pairs = ConstraintParser::parse(Rule::program, input)?;
+
+    let mut statements = Vec::new();
+
+    for pair in pairs {
+        if pair.as_rule() == Rule::EOI {
+            continue;
+        }
+
+        for statement_pair in pair.into_inner() {
+            if statement_pair.as_rule() == Rule::statement {
+                statements.push(build_statement(statement_pair)?);
+            }
+        }
+    }
+
+    Ok(Program { statements })
+}
+
+/// Build a statement from pest parse tree
+fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
+    let inner = pair.into_inner().next().unwrap();
+
+    match inner.as_rule() {
+        Rule::assignment => {
+            let mut parts = inner.into_inner();
+            let name = parts.next().unwrap().as_str().to_string();
+            let expr = build_ast(parts.next().unwrap())?;
+            Ok(Statement::Assignment { name, expr })
+        }
+        Rule::expr => {
+            let expr = build_ast(inner)?;
+            Ok(Statement::Expression(expr))
+        }
+        _ => Err(ParseError {
+            message: format!("Unexpected statement rule: {:?}", inner.as_rule()),
+        }),
+    }
+}
+
 /// Build AST from pest parse tree
 fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
     match pair.as_rule() {
@@ -303,6 +345,12 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             Ok(Expr::ShapePattern(ShapePattern { specs }))
         }
 
+        Rule::ident => {
+            // Variable reference
+            let name = pair.as_str().to_string();
+            Ok(Expr::Variable(name))
+        }
+
         _ => Err(ParseError {
             message: format!("Unexpected rule: {:?}", pair.as_rule()),
         }),
@@ -317,7 +365,12 @@ fn parse_shape_spec(pair: Pair<Rule>) -> Result<Shape, ParseError> {
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::shape_any => is_any = true,
-            Rule::shape_digits => digits_str = inner.as_str(),
+            Rule::shape_digits_any => digits_str = inner.as_str(),
+            Rule::shape_digits_marked => {
+                digits_str = inner.as_str();
+                // Strip %s prefix if present
+                digits_str = digits_str.strip_prefix("%s").unwrap_or(digits_str);
+            }
             _ => {}
         }
     }
@@ -461,5 +514,80 @@ mod tests {
     fn test_parse_error() {
         assert!(parse("invalid syntax here").is_err());
         assert!(parse("hcp(north) >=").is_err());
+    }
+
+    #[test]
+    fn test_parse_program_single_expression() {
+        let program = parse_program("hcp(north) >= 15").unwrap();
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Expression(_) => (),
+            _ => panic!("Expected expression statement"),
+        }
+    }
+
+    #[test]
+    fn test_parse_program_with_assignment() {
+        let program = parse_program("opener = hcp(north) >= 15\nopener").unwrap();
+        assert_eq!(program.statements.len(), 2);
+
+        match &program.statements[0] {
+            Statement::Assignment { name, .. } => {
+                assert_eq!(name, "opener");
+            }
+            _ => panic!("Expected assignment statement"),
+        }
+
+        match &program.statements[1] {
+            Statement::Expression(Expr::Variable(name)) => {
+                assert_eq!(name, "opener");
+            }
+            _ => panic!("Expected variable reference"),
+        }
+    }
+
+    #[test]
+    fn test_parse_program_multiple_assignments() {
+        let input = "strong = hcp(north) >= 15\nlong_hearts = hearts(north) >= 5\nstrong && long_hearts";
+        let program = parse_program(input).unwrap();
+        assert_eq!(program.statements.len(), 3);
+
+        // Check first assignment
+        match &program.statements[0] {
+            Statement::Assignment { name, .. } => assert_eq!(name, "strong"),
+            _ => panic!("Expected assignment"),
+        }
+
+        // Check second assignment
+        match &program.statements[1] {
+            Statement::Assignment { name, .. } => assert_eq!(name, "long_hearts"),
+            _ => panic!("Expected assignment"),
+        }
+
+        // Check final expression
+        match &program.statements[2] {
+            Statement::Expression(_) => (),
+            _ => panic!("Expected expression"),
+        }
+    }
+
+    #[test]
+    fn test_parse_program_semicolon_separator() {
+        let program = parse_program("opener = hcp(north) >= 15; opener").unwrap();
+        assert_eq!(program.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_variable_in_expression() {
+        let program = parse_program("x = hcp(north)\nx >= 15").unwrap();
+        assert_eq!(program.statements.len(), 2);
+
+        match &program.statements[1] {
+            Statement::Expression(Expr::BinaryOp { left, .. }) => match **left {
+                Expr::Variable(ref name) => assert_eq!(name, "x"),
+                _ => panic!("Expected variable reference"),
+            },
+            _ => panic!("Expected expression"),
+        }
     }
 }

@@ -234,6 +234,358 @@ impl Hand {
     pub fn has_card(&self, card: Card) -> bool {
         self.cards.contains(&card)
     }
+
+    /// Count number of tens in hand
+    pub fn tens(&self) -> u8 {
+        self.cards.iter().filter(|c| c.rank == Rank::Ten).count() as u8
+    }
+
+    /// Count number of tens in specific suit
+    pub fn tens_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| c.suit == suit && c.rank == Rank::Ten)
+            .count() as u8
+    }
+
+    /// Count number of jacks in hand
+    pub fn jacks(&self) -> u8 {
+        self.cards.iter().filter(|c| c.rank == Rank::Jack).count() as u8
+    }
+
+    /// Count number of jacks in specific suit
+    pub fn jacks_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| c.suit == suit && c.rank == Rank::Jack)
+            .count() as u8
+    }
+
+    /// Count number of queens in hand
+    pub fn queens(&self) -> u8 {
+        self.cards.iter().filter(|c| c.rank == Rank::Queen).count() as u8
+    }
+
+    /// Count number of queens in specific suit
+    pub fn queens_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| c.suit == suit && c.rank == Rank::Queen)
+            .count() as u8
+    }
+
+    /// Count number of kings in hand
+    pub fn kings(&self) -> u8 {
+        self.cards.iter().filter(|c| c.rank == Rank::King).count() as u8
+    }
+
+    /// Count number of kings in specific suit
+    pub fn kings_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| c.suit == suit && c.rank == Rank::King)
+            .count() as u8
+    }
+
+    /// Count number of aces in hand
+    pub fn aces(&self) -> u8 {
+        self.cards.iter().filter(|c| c.rank == Rank::Ace).count() as u8
+    }
+
+    /// Count number of aces in specific suit
+    pub fn aces_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| c.suit == suit && c.rank == Rank::Ace)
+            .count() as u8
+    }
+
+    /// Count top 2 honors (A, K) in hand
+    pub fn top2(&self) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| matches!(c.rank, Rank::Ace | Rank::King))
+            .count() as u8
+    }
+
+    /// Count top 2 honors (A, K) in specific suit
+    pub fn top2_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| c.suit == suit && matches!(c.rank, Rank::Ace | Rank::King))
+            .count() as u8
+    }
+
+    /// Count top 3 honors (A, K, Q) in hand
+    pub fn top3(&self) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| matches!(c.rank, Rank::Ace | Rank::King | Rank::Queen))
+            .count() as u8
+    }
+
+    /// Count top 3 honors (A, K, Q) in specific suit
+    pub fn top3_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| c.suit == suit && matches!(c.rank, Rank::Ace | Rank::King | Rank::Queen))
+            .count() as u8
+    }
+
+    /// Count top 4 honors (A, K, Q, J) in hand
+    pub fn top4(&self) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| matches!(c.rank, Rank::Ace | Rank::King | Rank::Queen | Rank::Jack))
+            .count() as u8
+    }
+
+    /// Count top 4 honors (A, K, Q, J) in specific suit
+    pub fn top4_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| {
+                c.suit == suit && matches!(c.rank, Rank::Ace | Rank::King | Rank::Queen | Rank::Jack)
+            })
+            .count() as u8
+    }
+
+    /// Count top 5 honors (A, K, Q, J, T) in hand
+    pub fn top5(&self) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c.rank,
+                    Rank::Ace | Rank::King | Rank::Queen | Rank::Jack | Rank::Ten
+                )
+            })
+            .count() as u8
+    }
+
+    /// Count top 5 honors (A, K, Q, J, T) in specific suit
+    pub fn top5_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| {
+                c.suit == suit
+                    && matches!(
+                        c.rank,
+                        Rank::Ace | Rank::King | Rank::Queen | Rank::Jack | Rank::Ten
+                    )
+            })
+            .count() as u8
+    }
+
+    /// Calculate C13 points (A=6, K=4, Q=2, J=1)
+    pub fn c13(&self) -> u8 {
+        self.cards
+            .iter()
+            .map(|c| match c.rank {
+                Rank::Ace => 6,
+                Rank::King => 4,
+                Rank::Queen => 2,
+                Rank::Jack => 1,
+                _ => 0,
+            })
+            .sum()
+    }
+
+    /// Calculate C13 points in specific suit
+    pub fn c13_in_suit(&self, suit: Suit) -> u8 {
+        self.cards
+            .iter()
+            .filter(|c| c.suit == suit)
+            .map(|c| match c.rank {
+                Rank::Ace => 6,
+                Rank::King => 4,
+                Rank::Queen => 2,
+                Rank::Jack => 1,
+                _ => 0,
+            })
+            .sum()
+    }
+
+    /// Calculate suit quality metric (Bridge World Oct 1982)
+    /// Returns quality value multiplied by 100 to use integer math
+    pub fn suit_quality(&self, suit: Suit) -> i32 {
+        let mut cards: Vec<Card> = self.cards.iter()
+            .filter(|c| c.suit == suit)
+            .copied()
+            .collect();
+
+        let length = cards.len() as i32;
+        if length == 0 {
+            return 0;
+        }
+
+        // Sort by rank descending
+        cards.sort_by(|a, b| b.rank.cmp(&a.rank));
+
+        // Detect honors
+        let has_ace = cards.iter().any(|c| c.rank == Rank::Ace);
+        let has_king = cards.iter().any(|c| c.rank == Rank::King);
+        let has_queen = cards.iter().any(|c| c.rank == Rank::Queen);
+        let has_jack = cards.iter().any(|c| c.rank == Rank::Jack);
+        let has_ten = cards.iter().any(|c| c.rank == Rank::Ten);
+        let has_nine = cards.iter().any(|c| c.rank == Rank::Nine);
+        let has_eight = cards.iter().any(|c| c.rank == Rank::Eight);
+
+        let mut quality = 0;
+        let mut higher_honors = 0;
+        let suit_factor = length * 10;
+
+        // Basic honor values
+        if has_ace {
+            quality += 4 * suit_factor;
+            higher_honors += 1;
+        }
+        if has_king {
+            quality += 3 * suit_factor;
+            higher_honors += 1;
+        }
+        if has_queen {
+            quality += 2 * suit_factor;
+            higher_honors += 1;
+        }
+        if has_jack {
+            quality += suit_factor;
+            higher_honors += 1;
+        }
+
+        // Long suit bonus (length > 6)
+        if length > 6 {
+            let mut replace_count = 3;
+            if has_queen {
+                replace_count -= 2;
+            }
+            if has_jack {
+                replace_count -= 1;
+            }
+            if replace_count > (length - 6) {
+                replace_count = length - 6;
+            }
+            quality += replace_count * suit_factor;
+        } else {
+            // Short suit (length <= 6)
+            if has_ten {
+                if (higher_honors > 1) || has_jack {
+                    quality += suit_factor;
+                } else {
+                    quality += suit_factor / 2;
+                }
+            }
+            if has_nine {
+                if (higher_honors == 2) || has_ten || has_eight {
+                    quality += suit_factor / 2;
+                }
+            }
+        }
+
+        quality
+    }
+
+    /// Calculate CCCC hand evaluation (Bridge World Oct 1982)
+    /// Returns evaluation multiplied by 100 to use integer math
+    pub fn cccc(&self) -> i32 {
+        let mut eval = 0;
+        let mut shape_points = 0;
+
+        // Evaluate each suit
+        for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
+            let mut cards: Vec<Card> = self.cards.iter()
+                .filter(|c| c.suit == suit)
+                .copied()
+                .collect();
+
+            let length = cards.len();
+
+            // Shape points for short suits
+            if length < 3 {
+                shape_points += (3 - length) as i32 * 100;
+            }
+
+            if length == 0 {
+                continue; // Void suit
+            }
+
+            // Sort by rank descending
+            cards.sort_by(|a, b| b.rank.cmp(&a.rank));
+
+            // Detect honors
+            let has_ace = cards.iter().any(|c| c.rank == Rank::Ace);
+            let has_king = cards.iter().any(|c| c.rank == Rank::King);
+            let has_queen = cards.iter().any(|c| c.rank == Rank::Queen);
+            let has_jack = cards.iter().any(|c| c.rank == Rank::Jack);
+            let has_ten = cards.iter().any(|c| c.rank == Rank::Ten);
+            let has_nine = cards.iter().any(|c| c.rank == Rank::Nine);
+
+            let mut higher_honors = 0;
+
+            // Ace: +300
+            if has_ace {
+                eval += 300;
+                higher_honors += 1;
+            }
+
+            // King: +200, -150 if singleton
+            if has_king {
+                eval += 200;
+                if length == 1 {
+                    eval -= 150;
+                }
+                higher_honors += 1;
+            }
+
+            // Queen: +100, penalties for shortage/isolation
+            if has_queen {
+                eval += 100;
+                if length == 1 {
+                    eval -= 75;
+                }
+                if length == 2 {
+                    eval -= 25;
+                }
+                if higher_honors == 0 {
+                    eval -= 25;
+                }
+                higher_honors += 1;
+            }
+
+            // Jack: bonus based on higher honors
+            if has_jack {
+                if higher_honors == 2 {
+                    eval += 50;
+                }
+                if higher_honors == 1 {
+                    eval += 25;
+                }
+                higher_honors += 1;
+            }
+
+            // Ten: bonus based on support
+            if has_ten {
+                if higher_honors == 2 {
+                    eval += 25;
+                }
+                if (higher_honors == 1) && has_nine {
+                    eval += 25;
+                }
+            }
+
+            // Add suit quality
+            eval += self.suit_quality(suit);
+        }
+
+        // Final shape adjustment
+        if shape_points == 0 {
+            eval -= 50;
+        } else {
+            eval += shape_points - 100;
+        }
+
+        eval
+    }
 }
 
 impl Default for Hand {

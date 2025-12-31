@@ -50,7 +50,11 @@ function_call = { function_name ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
 
 function_name = @{
     "hcp" | "controls" | "losers"
-    | "shape" | "hascard" | "top2" | "top3" | "top4" | "top5"
+    | "shape" | "hascard"
+    | "tens" | "jacks" | "queens" | "kings" | "aces"
+    | "top2" | "top3" | "top4" | "top5" | "c13"
+    | "pt0" | "pt1" | "pt2" | "pt3" | "pt4" | "pt5" | "pt6" | "pt7" | "pt8" | "pt9"
+    | "quality" | "cccc"
     | "hearts" | "spades" | "diamonds" | "clubs"  // Must be after suit check in primary
 }
 
@@ -64,9 +68,10 @@ add_op = { "+" | "-" }
 mul_op = { "*" | "/" | "%" }
 
 // Positions at the bridge table
+// Use word boundary: must not be followed by alphanumeric or underscore
 position = @{
-    ^"north" | ^"south" | ^"east" | ^"west"
-    | ^"n" | ^"s" | ^"e" | ^"w"
+    (^"north" | ^"south" | ^"east" | ^"west") ~ !(ASCII_ALPHANUMERIC | "_")
+    | (^"n" | ^"s" | ^"e" | ^"w") ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
 // Suit names (for functions like losers(north, spades))
@@ -93,13 +98,23 @@ ident = @{ !(position | function_name) ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_"
 // Shape patterns: any 4333 + 54xx - any 0xxx
 shape_pattern = { shape_spec ~ (shape_op ~ shape_spec)* }
 
-shape_spec = { shape_any? ~ shape_digits }
+shape_spec = { (shape_any ~ shape_digits_any) | shape_digits_marked }
 
 shape_any = { ^"any" }
 
 shape_op = { "+" | "-" }
 
-// Shape digits: 4 characters, each either a digit (0-9) or 'x' wildcard
-shape_digits = @{ shape_char ~ shape_char ~ shape_char ~ shape_char }
+// Shape digits after "any" keyword - can be pure digits (any disambiguates)
+shape_digits_any = @{ shape_char ~ shape_char ~ shape_char ~ shape_char }
+
+// Shape digits without "any" - must have %s prefix OR contain wildcards
+shape_digits_marked = @{
+    ("%s" ~ ASCII_DIGIT ~ ASCII_DIGIT ~ ASCII_DIGIT ~ ASCII_DIGIT)
+    | (shape_char_with_wildcard ~ shape_char ~ shape_char ~ shape_char)
+    | (shape_char ~ shape_char_with_wildcard ~ shape_char ~ shape_char)
+    | (shape_char ~ shape_char ~ shape_char_with_wildcard ~ shape_char)
+    | (shape_char ~ shape_char ~ shape_char ~ shape_char_with_wildcard)
+}
 
 shape_char = { ASCII_DIGIT | "x" | "X" }
+shape_char_with_wildcard = { "x" | "X" }

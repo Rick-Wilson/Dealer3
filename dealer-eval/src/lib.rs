@@ -1,5 +1,6 @@
 use dealer_core::{Card, Deal, Position, Suit};
-use dealer_parser::{BinaryOp, Expr, Function, Shape, ShapePattern, UnaryOp};
+use dealer_parser::{BinaryOp, Expr, Function, Program, Shape, ShapePattern, Statement, UnaryOp};
+use std::collections::HashMap;
 
 /// Evaluation error type
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10,6 +11,8 @@ pub enum EvalError {
     InvalidArgument(String),
     /// Function not yet implemented
     NotImplemented(String),
+    /// Variable not found
+    UndefinedVariable(String),
 }
 
 impl std::fmt::Display for EvalError {
@@ -20,27 +23,79 @@ impl std::fmt::Display for EvalError {
             }
             EvalError::InvalidArgument(msg) => write!(f, "Invalid argument: {}", msg),
             EvalError::NotImplemented(feature) => write!(f, "Not implemented: {}", feature),
+            EvalError::UndefinedVariable(name) => write!(f, "Undefined variable: {}", name),
         }
     }
 }
 
 impl std::error::Error for EvalError {}
 
-/// Evaluation context - holds the deal being evaluated
+/// Evaluation context - holds the deal being evaluated and variable bindings
 pub struct EvalContext<'a> {
     pub deal: &'a Deal,
+    /// Variable name -> Expression tree mapping
+    /// Variables store expression trees, not values (runtime-evaluated like dealer.c)
+    pub variables: HashMap<String, Expr>,
 }
 
 impl<'a> EvalContext<'a> {
     pub fn new(deal: &'a Deal) -> Self {
-        EvalContext { deal }
+        EvalContext {
+            deal,
+            variables: HashMap::new(),
+        }
     }
+
+    /// Create a context with pre-defined variables
+    pub fn with_variables(deal: &'a Deal, variables: HashMap<String, Expr>) -> Self {
+        EvalContext { deal, variables }
+    }
+}
+
+/// Evaluate a program (assignments + final expression) against a deal
+///
+/// Processes statements in order:
+/// - Assignments populate the variables HashMap
+/// - The final expression is evaluated with all variables defined
+pub fn eval_program(program: &Program, deal: &Deal) -> Result<i32, EvalError> {
+    let mut variables = HashMap::new();
+
+    let mut final_expr = None;
+
+    for statement in &program.statements {
+        match statement {
+            Statement::Assignment { name, expr } => {
+                // Store the expression tree, not the evaluated value
+                // This allows variables to reference other variables
+                variables.insert(name.clone(), expr.clone());
+            }
+            Statement::Expression(expr) => {
+                // Last expression is the constraint to evaluate
+                final_expr = Some(expr);
+            }
+        }
+    }
+
+    let constraint = final_expr.ok_or_else(|| {
+        EvalError::InvalidArgument("Program must end with a constraint expression".to_string())
+    })?;
+
+    let ctx = EvalContext::with_variables(deal, variables);
+    eval(constraint, &ctx)
 }
 
 /// Evaluate an expression against a deal
 pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
     match expr {
         Expr::Literal(value) => Ok(*value),
+
+        Expr::Variable(name) => {
+            // Look up variable and evaluate its stored expression tree
+            match ctx.variables.get(name) {
+                Some(var_expr) => eval(var_expr, ctx), // Recursively evaluate the stored expression
+                None => Err(EvalError::UndefinedVariable(name.clone())),
+            }
+        }
 
         Expr::Position(pos) => {
             // Position as a value - not very useful on its own, but valid
@@ -261,6 +316,237 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             Ok(if hand.has_card(card) { 1 } else { 0 })
         }
 
+        // Alternative point counts (pt0-pt9 / readable synonyms)
+        Function::Tens => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "tens".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.tens() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.tens_in_suit(suit) as i32)
+            }
+        }
+
+        Function::Jacks => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "jacks".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.jacks() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.jacks_in_suit(suit) as i32)
+            }
+        }
+
+        Function::Queens => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "queens".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.queens() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.queens_in_suit(suit) as i32)
+            }
+        }
+
+        Function::Kings => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "kings".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.kings() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.kings_in_suit(suit) as i32)
+            }
+        }
+
+        Function::Aces => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "aces".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.aces() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.aces_in_suit(suit) as i32)
+            }
+        }
+
+        Function::Top2 => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "top2".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.top2() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.top2_in_suit(suit) as i32)
+            }
+        }
+
+        Function::Top3 => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "top3".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.top3() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.top3_in_suit(suit) as i32)
+            }
+        }
+
+        Function::Top4 => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "top4".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.top4() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.top4_in_suit(suit) as i32)
+            }
+        }
+
+        Function::Top5 => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "top5".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.top5() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.top5_in_suit(suit) as i32)
+            }
+        }
+
+        Function::C13 => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "c13".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            if args.len() == 1 {
+                Ok(hand.c13() as i32)
+            } else {
+                let suit = eval_suit_arg(&args[1])?;
+                Ok(hand.c13_in_suit(suit) as i32)
+            }
+        }
+
+        Function::Quality => {
+            if args.len() != 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "quality".to_string(),
+                    expected: 2,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let suit = eval_suit_arg(&args[1])?;
+            let hand = ctx.deal.hand(position);
+
+            Ok(hand.suit_quality(suit))
+        }
+
+        Function::Cccc => {
+            if args.len() != 1 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "cccc".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+            let hand = ctx.deal.hand(position);
+
+            Ok(hand.cccc())
+        }
     }
 }
 
@@ -510,18 +796,22 @@ mod tests {
 
     #[test]
     fn test_shape_exact() {
+        use dealer_parser::preprocess;
+
         // Seed 1 produces north with 5-2-4-2 shape: AKQT3.J6.KJ42.95
         let mut gen = DealGenerator::new(1);
         let deal = gen.generate();
         let ctx = EvalContext::new(&deal);
 
         // North has 5 spades, 2 hearts, 4 diamonds, 2 clubs
-        let ast = parse("shape(north, 5242)").unwrap();
+        let input = "shape(north, 5242)";
+        let ast = parse(&preprocess(input)).unwrap();
         let result = eval(&ast, &ctx).unwrap();
         assert_eq!(result, 1);
 
         // Should not match different exact shape
-        let ast = parse("shape(north, 5431)").unwrap();
+        let input = "shape(north, 5431)";
+        let ast = parse(&preprocess(input)).unwrap();
         let result = eval(&ast, &ctx).unwrap();
         assert_eq!(result, 0);
     }
@@ -597,6 +887,8 @@ mod tests {
 
     #[test]
     fn test_shape_exclusion() {
+        use dealer_parser::preprocess;
+
         // Test that exclusion pattern works
         let mut gen = DealGenerator::new(1);
 
@@ -607,7 +899,8 @@ mod tests {
             let lengths = north.suit_lengths();
 
             // any 4333 - 4333 should match 4333 distributions that aren't exactly S=4,H=3,D=3,C=3
-            let ast = parse("shape(north, any 4333 - 4333)").unwrap();
+            let input = "shape(north, any 4333 - 4333)";
+            let ast = parse(&preprocess(input)).unwrap();
             let result = eval(&ast, &ctx).unwrap();
 
             let dist = north.distribution();
@@ -714,5 +1007,600 @@ mod tests {
         hand5.add_card(Card::new(Suit::Clubs, Rank::Queen));
         hand5.add_card(Card::new(Suit::Clubs, Rank::Two));
         assert_eq!(hand5.losers_in_suit(Suit::Clubs), 2);
+    }
+
+    #[test]
+    fn test_honor_count_functions() {
+        use dealer_core::{Card, Hand, Rank, Suit};
+
+        let mut hand = Hand::new();
+        // Add AKQJT in spades
+        hand.add_card(Card::new(Suit::Spades, Rank::Ace));
+        hand.add_card(Card::new(Suit::Spades, Rank::King));
+        hand.add_card(Card::new(Suit::Spades, Rank::Queen));
+        hand.add_card(Card::new(Suit::Spades, Rank::Jack));
+        hand.add_card(Card::new(Suit::Spades, Rank::Ten));
+
+        // Add KQ in hearts
+        hand.add_card(Card::new(Suit::Hearts, Rank::King));
+        hand.add_card(Card::new(Suit::Hearts, Rank::Queen));
+
+        // Add A in diamonds
+        hand.add_card(Card::new(Suit::Diamonds, Rank::Ace));
+
+        // Test individual honor counts
+        assert_eq!(hand.aces(), 2);
+        assert_eq!(hand.kings(), 2);
+        assert_eq!(hand.queens(), 2);
+        assert_eq!(hand.jacks(), 1);
+        assert_eq!(hand.tens(), 1);
+
+        // Test suit-specific counts
+        assert_eq!(hand.aces_in_suit(Suit::Spades), 1);
+        assert_eq!(hand.kings_in_suit(Suit::Hearts), 1);
+    }
+
+    #[test]
+    fn test_top_honors_functions() {
+        use dealer_core::{Card, Hand, Rank, Suit};
+
+        let mut hand = Hand::new();
+        // AKQJT in spades, KQ in hearts, A in diamonds
+        hand.add_card(Card::new(Suit::Spades, Rank::Ace));
+        hand.add_card(Card::new(Suit::Spades, Rank::King));
+        hand.add_card(Card::new(Suit::Spades, Rank::Queen));
+        hand.add_card(Card::new(Suit::Spades, Rank::Jack));
+        hand.add_card(Card::new(Suit::Spades, Rank::Ten));
+        hand.add_card(Card::new(Suit::Hearts, Rank::King));
+        hand.add_card(Card::new(Suit::Hearts, Rank::Queen));
+        hand.add_card(Card::new(Suit::Diamonds, Rank::Ace));
+
+        // Test top2 (AK)
+        assert_eq!(hand.top2(), 4); // AS, KS, KH, AD
+        assert_eq!(hand.top2_in_suit(Suit::Spades), 2); // AS, KS
+
+        // Test top3 (AKQ)
+        assert_eq!(hand.top3(), 6); // AS, KS, QS, KH, QH, AD
+        assert_eq!(hand.top3_in_suit(Suit::Hearts), 2); // KH, QH
+
+        // Test top4 (AKQJ)
+        assert_eq!(hand.top4(), 7); // +JS
+        assert_eq!(hand.top4_in_suit(Suit::Spades), 4);
+
+        // Test top5 (AKQJT)
+        assert_eq!(hand.top5(), 8); // +TS
+        assert_eq!(hand.top5_in_suit(Suit::Spades), 5);
+    }
+
+    #[test]
+    fn test_c13_points() {
+        use dealer_core::{Card, Hand, Rank, Suit};
+
+        let mut hand = Hand::new();
+        // A=6, K=4, Q=2, J=1
+        hand.add_card(Card::new(Suit::Spades, Rank::Ace)); // 6
+        hand.add_card(Card::new(Suit::Hearts, Rank::King)); // 4
+        hand.add_card(Card::new(Suit::Diamonds, Rank::Queen)); // 2
+        hand.add_card(Card::new(Suit::Clubs, Rank::Jack)); // 1
+
+        assert_eq!(hand.c13(), 13);
+        assert_eq!(hand.c13_in_suit(Suit::Spades), 6);
+        assert_eq!(hand.c13_in_suit(Suit::Hearts), 4);
+    }
+
+    #[test]
+    fn test_eval_tens_function() {
+        // Seed 1 north: AKQT3.J6.KJ42.95
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // North has T in spades
+        let ast = parse("tens(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 1);
+
+        let ast = parse("tens(north, spades)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn test_eval_aces_kings_function() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Test aces(north)
+        let ast = parse("aces(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        let north = deal.hand(Position::North);
+        assert_eq!(result, north.aces() as i32);
+
+        // Test kings(north)
+        let ast = parse("kings(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, north.kings() as i32);
+    }
+
+    #[test]
+    fn test_eval_top_honors() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+        let north = deal.hand(Position::North);
+
+        // Test top2
+        let ast = parse("top2(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, north.top2() as i32);
+
+        // Test top3
+        let ast = parse("top3(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, north.top3() as i32);
+
+        // Test top4
+        let ast = parse("top4(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, north.top4() as i32);
+
+        // Test top5
+        let ast = parse("top5(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, north.top5() as i32);
+    }
+
+    #[test]
+    fn test_eval_c13() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+        let north = deal.hand(Position::North);
+
+        let ast = parse("c13(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, north.c13() as i32);
+    }
+
+    #[test]
+    fn test_pt_synonyms() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Test that pt0-pt9 work as synonyms
+        let ast1 = parse("tens(north)").unwrap();
+        let ast2 = parse("pt0(north)").unwrap();
+        assert_eq!(eval(&ast1, &ctx).unwrap(), eval(&ast2, &ctx).unwrap());
+
+        let ast1 = parse("aces(north)").unwrap();
+        let ast2 = parse("pt4(north)").unwrap();
+        assert_eq!(eval(&ast1, &ctx).unwrap(), eval(&ast2, &ctx).unwrap());
+
+        let ast1 = parse("top3(north)").unwrap();
+        let ast2 = parse("pt6(north)").unwrap();
+        assert_eq!(eval(&ast1, &ctx).unwrap(), eval(&ast2, &ctx).unwrap());
+
+        let ast1 = parse("c13(north)").unwrap();
+        let ast2 = parse("pt9(north)").unwrap();
+        assert_eq!(eval(&ast1, &ctx).unwrap(), eval(&ast2, &ctx).unwrap());
+    }
+
+    #[test]
+    fn test_quality_function() {
+        use dealer_core::{Card, Hand, Rank, Suit};
+
+        // Create a hand with a strong spade suit: AKQ32
+        let mut hand = Hand::new();
+        hand.add_card(Card::new(Suit::Spades, Rank::Ace));
+        hand.add_card(Card::new(Suit::Spades, Rank::King));
+        hand.add_card(Card::new(Suit::Spades, Rank::Queen));
+        hand.add_card(Card::new(Suit::Spades, Rank::Three));
+        hand.add_card(Card::new(Suit::Spades, Rank::Two));
+
+        // Add filler cards in other suits
+        for _ in 0..3 {
+            hand.add_card(Card::new(Suit::Hearts, Rank::Two));
+        }
+        for _ in 0..3 {
+            hand.add_card(Card::new(Suit::Diamonds, Rank::Two));
+        }
+        for _ in 0..2 {
+            hand.add_card(Card::new(Suit::Clubs, Rank::Two));
+        }
+
+        // Calculate expected quality for spades
+        // Length = 5, SuitFactor = 50
+        // A = 4*50 = 200, K = 3*50 = 150, Q = 2*50 = 100
+        // Total = 450
+        let quality = hand.suit_quality(Suit::Spades);
+        assert_eq!(quality, 450);
+
+        // Test with void suit
+        let quality_clubs = hand.suit_quality(Suit::Clubs);
+        // Clubs has 2 cards (length 2, SuitFactor = 20), but no honors
+        assert_eq!(quality_clubs, 0);
+    }
+
+    #[test]
+    fn test_quality_with_tens_and_nines() {
+        use dealer_core::{Card, Hand, Rank, Suit};
+
+        // Create a hand with AKT9 in hearts
+        let mut hand = Hand::new();
+        hand.add_card(Card::new(Suit::Hearts, Rank::Ace));
+        hand.add_card(Card::new(Suit::Hearts, Rank::King));
+        hand.add_card(Card::new(Suit::Hearts, Rank::Ten));
+        hand.add_card(Card::new(Suit::Hearts, Rank::Nine));
+
+        // Add filler cards
+        for _ in 0..9 {
+            hand.add_card(Card::new(Suit::Spades, Rank::Two));
+        }
+
+        // Length = 4, SuitFactor = 40
+        // A = 4*40 = 160, K = 3*40 = 120
+        // HigherHonors = 2 when we reach T
+        // T with HigherHonors > 1: +40
+        // 9 with HigherHonors == 2: +20 (half of 40)
+        // Total = 160 + 120 + 40 + 20 = 340
+        let quality = hand.suit_quality(Suit::Hearts);
+        assert_eq!(quality, 340);
+    }
+
+    #[test]
+    fn test_cccc_function() {
+        use dealer_core::{Card, Hand, Rank, Suit};
+
+        // Create a balanced hand with 15 HCP
+        let mut north = Hand::new();
+        north.add_card(Card::new(Suit::Spades, Rank::Ace));
+        north.add_card(Card::new(Suit::Spades, Rank::King));
+        north.add_card(Card::new(Suit::Spades, Rank::Three));
+        north.add_card(Card::new(Suit::Spades, Rank::Two));
+
+        north.add_card(Card::new(Suit::Hearts, Rank::Queen));
+        north.add_card(Card::new(Suit::Hearts, Rank::Jack));
+        north.add_card(Card::new(Suit::Hearts, Rank::Ten));
+
+        north.add_card(Card::new(Suit::Diamonds, Rank::King));
+        north.add_card(Card::new(Suit::Diamonds, Rank::Nine));
+        north.add_card(Card::new(Suit::Diamonds, Rank::Eight));
+
+        north.add_card(Card::new(Suit::Clubs, Rank::Ace));
+        north.add_card(Card::new(Suit::Clubs, Rank::Four));
+        north.add_card(Card::new(Suit::Clubs, Rank::Two));
+
+        let cccc_value = north.cccc();
+
+        // This should be a positive value (values are multiplied by 100)
+        // The exact value depends on the algorithm, but it should be reasonable
+        assert!(cccc_value > 0);
+
+        // For this hand with 15 HCP and balanced shape, expect value around 1200-1800
+        assert!(cccc_value > 1000 && cccc_value < 2000);
+    }
+
+    #[test]
+    fn test_cccc_with_singleton_honors() {
+        use dealer_core::{Card, Hand, Rank, Suit};
+
+        // Create a hand with singleton King (penalized)
+        let mut hand = Hand::new();
+        hand.add_card(Card::new(Suit::Spades, Rank::Ace));
+        hand.add_card(Card::new(Suit::Spades, Rank::Queen));
+        hand.add_card(Card::new(Suit::Spades, Rank::Jack));
+        hand.add_card(Card::new(Suit::Spades, Rank::Ten));
+        hand.add_card(Card::new(Suit::Spades, Rank::Nine));
+
+        hand.add_card(Card::new(Suit::Hearts, Rank::King)); // Singleton King
+
+        hand.add_card(Card::new(Suit::Diamonds, Rank::Ace));
+        hand.add_card(Card::new(Suit::Diamonds, Rank::Three));
+        hand.add_card(Card::new(Suit::Diamonds, Rank::Two));
+
+        hand.add_card(Card::new(Suit::Clubs, Rank::Queen));
+        hand.add_card(Card::new(Suit::Clubs, Rank::Five));
+        hand.add_card(Card::new(Suit::Clubs, Rank::Four));
+        hand.add_card(Card::new(Suit::Clubs, Rank::Two));
+
+        let cccc_value = hand.cccc();
+
+        // The singleton King gets +200 but -150 penalty = +50 net
+        // Plus shape points for singleton
+        assert!(cccc_value > 0);
+    }
+
+    #[test]
+    fn test_eval_quality() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Parse and evaluate quality function
+        let ast = parse("quality(north, spades)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+
+        // Result should match direct calculation
+        let north = deal.hand(Position::North);
+        assert_eq!(result, north.suit_quality(Suit::Spades));
+    }
+
+    #[test]
+    fn test_eval_cccc() {
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Parse and evaluate cccc function
+        let ast = parse("cccc(north)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+
+        // Result should match direct calculation
+        let north = deal.hand(Position::North);
+        assert_eq!(result, north.cccc());
+    }
+
+    #[test]
+    fn test_cccc_constraint() {
+        let mut gen = DealGenerator::new(42);
+
+        // Find a deal where north has a good CCCC evaluation
+        let mut found = false;
+        for _ in 0..1000 {
+            let deal = gen.generate();
+            let north = deal.hand(Position::North);
+
+            // CCCC values around 1500+ indicate strong hands
+            if north.cccc() >= 1500 {
+                found = true;
+                break;
+            }
+        }
+
+        assert!(found, "Should find a deal with high CCCC value");
+    }
+
+    #[test]
+    fn test_four_digit_number_in_shape() {
+        // Test that 4-digit numbers in shape() functions work correctly
+        // when preprocessed with %s marker
+        use dealer_parser::preprocess;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // North has 5-2-4-2 shape with seed 1
+        let input = "shape(north, 5242)";
+        let preprocessed = preprocess(input);
+        assert_eq!(preprocessed, "shape(north, %s5242)");
+
+        let ast = parse(&preprocessed).unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn test_four_digit_number_in_comparison() {
+        // Test that 4-digit numbers in regular comparisons work correctly
+        use dealer_parser::preprocess;
+
+        let mut gen = DealGenerator::new(42);
+
+        // Find a deal with CCCC >= 1500
+        let mut found = false;
+        for _ in 0..1000 {
+            let deal = gen.generate();
+            let ctx = EvalContext::new(&deal);
+
+            let input = "cccc(north) >= 1500";
+            let preprocessed = preprocess(input);
+            // Preprocessor should NOT mark this 1500 (not in shape function)
+            assert_eq!(preprocessed, "cccc(north) >= 1500");
+
+            let ast = parse(&preprocessed).unwrap();
+            let result = eval(&ast, &ctx).unwrap();
+
+            let north = deal.hand(Position::North);
+            let expected = if north.cccc() >= 1500 { 1 } else { 0 };
+            assert_eq!(result, expected);
+
+            if result == 1 {
+                found = true;
+                break;
+            }
+        }
+
+        assert!(found, "Should find a deal with CCCC >= 1500");
+    }
+
+    #[test]
+    fn test_four_digit_mixed_expression() {
+        // Test expression with both shape pattern AND 4-digit comparison
+        use dealer_parser::preprocess;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // North has 5-2-4-2 shape and CCCC value with seed 1
+        let input = "cccc(north) >= 1000 && shape(north, 5242)";
+        let preprocessed = preprocess(input);
+        // Only the shape number should be marked
+        assert_eq!(preprocessed, "cccc(north) >= 1000 && shape(north, %s5242)");
+
+        let ast = parse(&preprocessed).unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+
+        let north = deal.hand(Position::North);
+        let cccc_value = north.cccc();
+        let cccc_ok = cccc_value >= 1000;
+        // Check exact suit lengths in S-H-D-C order
+        let shape_ok = north.suit_lengths() == [5, 2, 4, 2];
+        let expected = if cccc_ok && shape_ok { 1 } else { 0 };
+
+        assert_eq!(
+            result, expected,
+            "CCCC value: {}, suit_lengths: {:?}, cccc_ok: {}, shape_ok: {}",
+            cccc_value,
+            north.suit_lengths(),
+            cccc_ok,
+            shape_ok
+        );
+    }
+
+    #[test]
+    fn test_eval_program_simple_variable() {
+        use dealer_parser::parse_program;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+
+        // Simple variable assignment and usage
+        let input = "opener = hcp(north) >= 15\nopener";
+        let program = parse_program(input).unwrap();
+        let result = eval_program(&program, &deal).unwrap();
+
+        let north = deal.hand(Position::North);
+        let expected = if north.hcp() >= 15 { 1 } else { 0 };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_program_multiple_variables() {
+        use dealer_parser::parse_program;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+
+        // Multiple variables
+        let input = "strong = hcp(north) >= 15\nlong_hearts = hearts(north) >= 5\nstrong && long_hearts";
+        let program = parse_program(input).unwrap();
+        let result = eval_program(&program, &deal).unwrap();
+
+        let north = deal.hand(Position::North);
+        let expected = if north.hcp() >= 15 && north.suit_length(Suit::Hearts) >= 5 {
+            1
+        } else {
+            0
+        };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_program_variable_reference_in_expression() {
+        use dealer_parser::parse_program;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+
+        // Use variable in arithmetic expression
+        let input = "points = hcp(north)\npoints + hcp(south) >= 25";
+        let program = parse_program(input).unwrap();
+        let result = eval_program(&program, &deal).unwrap();
+
+        let north = deal.hand(Position::North);
+        let south = deal.hand(Position::South);
+        let expected = if north.hcp() + south.hcp() >= 25 { 1 } else { 0 };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_program_variables_referencing_variables() {
+        use dealer_parser::parse_program;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+
+        // Variable referencing another variable
+        let input = "north_hcp = hcp(north)\nopener = north_hcp >= 15\nopener";
+        let program = parse_program(input).unwrap();
+        let result = eval_program(&program, &deal).unwrap();
+
+        let north = deal.hand(Position::North);
+        let expected = if north.hcp() >= 15 { 1 } else { 0 };
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eval_program_undefined_variable() {
+        use dealer_parser::parse_program;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+
+        // Reference undefined variable
+        let input = "undefined_var >= 15";
+        let program = parse_program(input).unwrap();
+        let result = eval_program(&program, &deal);
+
+        assert!(result.is_err());
+        match result {
+            Err(EvalError::UndefinedVariable(name)) => {
+                assert_eq!(name, "undefined_var");
+            }
+            _ => panic!("Expected UndefinedVariable error"),
+        }
+    }
+
+    #[test]
+    fn test_eval_program_complex_example() {
+        use dealer_parser::parse_program;
+
+        let mut gen = DealGenerator::new(1);
+
+        // Find a deal matching complex constraints
+        let mut found = false;
+        for _ in 0..1000 {
+            let deal = gen.generate();
+
+            let input = "nt_opener = hcp(north) >= 15 && hcp(north) <= 17\n\
+                         balanced = shape(north, any 4333 + any 4432 + any 5332)\n\
+                         nt_opener && balanced";
+            let program = parse_program(input).unwrap();
+            let result = eval_program(&program, &deal).unwrap();
+
+            if result != 0 {
+                let north = deal.hand(Position::North);
+                let hcp = north.hcp();
+                assert!(hcp >= 15 && hcp <= 17, "HCP should be 15-17, got {}", hcp);
+
+                let lengths = north.suit_lengths();
+                let is_balanced = north.is_balanced();
+                assert!(
+                    is_balanced,
+                    "Hand should be balanced, got suit lengths {:?}",
+                    lengths
+                );
+
+                found = true;
+                break;
+            }
+        }
+
+        assert!(found, "Should find at least one 1NT opening hand");
+    }
+
+    #[test]
+    fn test_eval_program_no_final_expression() {
+        use dealer_parser::parse_program;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+
+        // Program with only assignments, no final expression
+        let input = "x = hcp(north)\ny = hcp(south)";
+        let program = parse_program(input).unwrap();
+        let result = eval_program(&program, &deal);
+
+        assert!(result.is_err());
+        match result {
+            Err(EvalError::InvalidArgument(msg)) => {
+                assert!(msg.contains("constraint expression"));
+            }
+            _ => panic!("Expected InvalidArgument error"),
+        }
     }
 }
