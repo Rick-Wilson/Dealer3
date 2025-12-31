@@ -73,6 +73,14 @@ pub fn eval_program(program: &Program, deal: &Deal) -> Result<i32, EvalError> {
                 // Last expression is the constraint to evaluate
                 final_expr = Some(expr);
             }
+            Statement::Condition(expr) => {
+                // Condition statement is the constraint to evaluate
+                final_expr = Some(expr);
+            }
+            Statement::Produce(_) | Statement::Action(_) | Statement::Dealer(_) | Statement::Vulnerable(_) => {
+                // These are handled by the CLI, not the evaluator
+                // Just skip them here
+            }
         }
     }
 

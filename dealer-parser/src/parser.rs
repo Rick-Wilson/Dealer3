@@ -57,7 +57,7 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
         }
 
         for statement_pair in pair.into_inner() {
-            if statement_pair.as_rule() == Rule::statement {
+            if statement_pair.as_rule() == Rule::dealer_statement {
                 statements.push(build_statement(statement_pair)?);
             }
         }
@@ -71,6 +71,48 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     let inner = pair.into_inner().next().unwrap();
 
     match inner.as_rule() {
+        Rule::condition_stmt => {
+            let expr = build_ast(inner.into_inner().next().unwrap())?;
+            Ok(Statement::Condition(expr))
+        }
+        Rule::produce_stmt => {
+            let literal = inner.into_inner().next().unwrap();
+            let value = literal.as_str().parse::<usize>().map_err(|_| ParseError {
+                message: format!("Invalid produce count: {}", literal.as_str()),
+            })?;
+            Ok(Statement::Produce(value))
+        }
+        Rule::action_stmt => {
+            let action_type_str = inner.into_inner().next().unwrap().as_str();
+            let action_type = ActionType::from_str(action_type_str)
+                .ok_or_else(|| ParseError {
+                    message: format!("Invalid action type: {}", action_type_str),
+                })?;
+            Ok(Statement::Action(action_type))
+        }
+        Rule::dealer_stmt => {
+            let compass_str = inner.into_inner().next().unwrap().as_str().to_lowercase();
+            let position = match compass_str.as_str() {
+                "north" | "n" => Position::North,
+                "south" | "s" => Position::South,
+                "east" | "e" => Position::East,
+                "west" | "w" => Position::West,
+                _ => {
+                    return Err(ParseError {
+                        message: format!("Invalid dealer position: {}", compass_str),
+                    })
+                }
+            };
+            Ok(Statement::Dealer(position))
+        }
+        Rule::vulnerable_stmt => {
+            let vuln_str = inner.into_inner().next().unwrap().as_str();
+            let vuln = VulnerabilityType::from_str(vuln_str)
+                .ok_or_else(|| ParseError {
+                    message: format!("Invalid vulnerability: {}", vuln_str),
+                })?;
+            Ok(Statement::Vulnerable(vuln))
+        }
         Rule::assignment => {
             let mut parts = inner.into_inner();
             let name = parts.next().unwrap().as_str().to_string();

@@ -1,6 +1,6 @@
 # Dealer Implementation Status
 
-**Last Updated:** 2025-12-30
+**Last Updated:** 2025-12-31
 
 ## Overview
 
@@ -17,14 +17,17 @@ This document tracks the implementation status of the dealer constraint language
 - Hand quality evaluation (quality, cccc)
 - Variables (full support for assignments and references)
 - Produce mode (`-p N`) with seeded generation (`-s SEED`)
+- **Action keywords (`condition`, `produce`, `action`)**
+- **Print formats (printall, printew, printpbn, printcompact, printoneline)**
+- **Duration logging (performance tracking)**
 
 **❌ Not Yet Implemented:**
 - Advanced functions (tricks, score, imps)
-- Action blocks (print formats, statistics, control commands)
+- Statistical actions (average, frequency)
 - Generate mode (`-g N`)
-- Predeal, vulnerability, dealer position
+- Predeal
 
-**Test Status:** 87 tests passing across all crates
+**Test Status:** 102 tests passing across all crates
 
 ---
 
@@ -204,21 +207,55 @@ These functions require a double-dummy solver (DDS library) and are deferred:
 
 ## Action Keywords
 
-### ✅ **Partially Implemented**
+### ✅ **Implemented**
 
 | Action | Description | Status |
 |--------|-------------|--------|
-| `produce N` | Generate N matching deals | ✅ Via `-p` flag |
+| `produce N` | Generate N matching deals | ✅ Keyword & `-p` flag |
+| `condition expr` | Define filter constraint | ✅ Working |
+| `action printall` | Print all 4 hands (newspaper columns) | ✅ Working |
+| `action printew` | Print E/W hands only | ✅ Working |
+| `action printpbn` | PBN format output with metadata | ✅ Working |
+| `action printcompact` | Compact 4-line format | ✅ Working |
+| `action printoneline` | Single-line format | ✅ Working |
+| `dealer N/E/S/W` | Set dealer position (north/east/south/west) | ✅ Working |
+| `vulnerable none/NS/EW/all` | Set vulnerability | ✅ Working |
+
+**Example Usage:**
+```bash
+# Full dealer.exe syntax with vulnerable and dealer
+cat << 'EOF' | dealer -s 1
+vulnerable ew
+dealer west
+nt_opener = hcp(north) >= 15 && hcp(north) <= 17
+condition nt_opener
+produce 5
+action printpbn
+EOF
+
+# Command-line flags override input file keywords
+echo "dealer south
+vulnerable all
+condition hcp(north) >= 20
+produce 3
+action printcompact" | dealer -p 10 -f oneline -d north -v none
+# Will produce 10 (not 3) in oneline format (not compact) with dealer=north, vulnerable=none
+```
+
+**Implementation Details:**
+- Action keywords can be overridden by command-line flags (CLI has highest priority)
+- `condition` sets the constraint expression (equivalent to standalone expression)
+- `produce N` sets default produce count (overridden by `-p N` flag if specified)
+- `action` sets output format (overridden by `-f FORMAT` flag if specified)
+- `dealer` sets dealer position (overridden by `-d POS` flag if specified)
+- `vulnerable` sets vulnerability (overridden by `-v VULN` flag if specified)
+- Precedence: Command-line flags > Input file keywords > Defaults
+- Backward compatible: simple expressions still work with command-line flags
 
 ### ❌ **Not Implemented**
 
 #### Print Actions
-- `printall` - Print all 4 hands (default in dealer.exe)
 - `print(expression)` - Print custom expression
-- `printew` - Print E/W hands only
-- `printpbn` - PBN format output
-- `printcompact` - Compact format
-- `printoneline` - One-line format (currently hardcoded)
 - `printes` - Print in ES format
 
 #### Statistical Actions
@@ -227,13 +264,9 @@ These functions require a double-dummy solver (DDS library) and are deferred:
 
 #### Control Commands
 - `generate N` - Generate exactly N deals (report all matches)
-- `vulnerable none|NS|EW|all` - Set vulnerability
-- `dealer N|E|S|W` - Set dealer position
 - `predeal player cards` - Pre-assign specific cards
 - `pointcount name values` - Define custom point count
 - `altcount name values` - Alternative counting method
-- `condition expression` - Define filter condition
-- `action block` - Define action block
 
 ---
 
@@ -243,16 +276,20 @@ These functions require a double-dummy solver (DDS library) and are deferred:
 
 | Argument | Description | Status |
 |----------|-------------|--------|
-| `-p N` / `--produce N` | Produce N matching deals | ✅ Implemented |
+| `-p N` / `--produce N` | Produce N matching deals (default: 40) | ✅ Implemented |
 | `-s SEED` / `--seed SEED` | Set random seed | ✅ Implemented |
+| `-f FORMAT` / `--format FORMAT` | Output format (oneline, printall, printew, printpbn, printcompact) | ✅ Implemented |
+| `-d POS` / `--dealer POS` | Dealer position for PBN (N/E/S/W) | ✅ Implemented |
+| `-v VULN` / `--vulnerable VULN` | Vulnerability for PBN (None/NS/EW/All) | ✅ Implemented |
 | `-g N` / `--generate N` | Generate exactly N deals | ❌ Not implemented |
 
 ### Default Behavior
 
 - **Input**: Reads constraint from stdin
-- **Output**: Printoneline format to stdout (hardcoded)
-- **Statistics**: Printed to stderr
+- **Output**: Oneline format to stdout (default)
+- **Statistics**: Printed to stderr (generated count, produced count, seed, duration)
 - **Seed**: Microsecond-resolution timestamp if not specified
+- **Format priority**: Action keywords override command-line flags
 
 ---
 
@@ -271,12 +308,14 @@ These functions require a double-dummy solver (DDS library) and are deferred:
 
 ### Test Coverage
 
-- **Total Tests**: 87 passing
+- **Total Tests**: 102 passing
 - **Variables**: 9 tests for variable assignment, lookup, and recursive evaluation
 - **Preprocessing**: 7 tests for 4-digit number disambiguation
 - **Quality/CCCC**: 7 tests for hand evaluation functions (2 unit tests, 3 evaluation tests, 2 integration tests)
-- **Coverage**: All core constraint functions, alternative point counts, hand quality metrics, variables, and automatic preprocessing implemented
-- **Missing**: Action language, statistical functions, double-dummy analysis
+- **Print Formats**: 9 tests for output formatting (printall, printew, printpbn, printcompact, oneline)
+- **Action Keywords**: Parser tests for condition, produce, action statements
+- **Coverage**: All core constraint functions, alternative point counts, hand quality metrics, variables, automatic preprocessing, action keywords, and print formats implemented
+- **Missing**: Statistical functions, double-dummy analysis
 
 ### Preprocessing System
 
@@ -296,8 +335,9 @@ The grammar is then designed to require the `%s` marker for pure-digit shape pat
 ## Limitations of Current Implementation
 
 ### Parser Limitations
-1. Only parses constraint expressions, not action blocks
-2. No support for full dealer input format (e.g., `condition`, `produce`, `action` keywords)
+1. ✅ ~~Only parses constraint expressions, not action blocks~~ **IMPLEMENTED**
+2. ✅ ~~No support for full dealer input format~~ **IMPLEMENTED** (`condition`, `produce`, `action` keywords working)
+3. No statistical action parsing (average, frequency)
 
 ### Evaluator Limitations
 1. 22 core functions implemented (hcp, 4 suits, controls, losers, shape, hascard, tens-aces, top2-5, c13, quality, cccc)
@@ -307,9 +347,9 @@ The grammar is then designed to require the `%s` marker for pure-digit shape pat
 
 ### CLI Limitations
 1. Only "produce" mode (no "generate" mode)
-2. Output format hardcoded to printoneline
-3. No action language support
-4. No predeal/vulnerability/dealer position
+2. ✅ ~~Output format hardcoded to printoneline~~ **IMPLEMENTED** (5 formats available via `-f` flag or `action` keyword)
+3. ✅ ~~No action language support~~ **IMPLEMENTED** (condition, produce, action keywords working)
+4. No predeal support (vulnerability/dealer position only for PBN format output, not constraint evaluation)
 5. No statistical output (average, frequency)
 
 ---
@@ -318,23 +358,31 @@ The grammar is then designed to require the `%s` marker for pure-digit shape pat
 
 The full dealer language has two parts:
 
-1. **Condition Section** - Filter expressions (partially implemented)
-2. **Action Section** - Output and statistics (NOT implemented)
+1. **Condition Section** - Filter expressions ✅ **IMPLEMENTED**
+2. **Action Section** - Output and statistics (partially implemented)
 
 Example full dealer input:
 ```
-# Condition
-condition hcp(north) >= 15 && hearts(north) >= 5
+# Variables
+nt_opener = hcp(north) >= 15 && hcp(north) <= 17 && shape(north, any 4333 + any 4432 + any 5332)
 
-# Actions
+# Condition
+condition nt_opener
+
+# Actions (partially working)
 produce 100
-action
-    printoneline
-    average hcp(north)
-    frequency shape(north)
+action printpbn    # ✅ Print formats working
+
+# Not yet implemented:
+# average hcp(north)
+# frequency shape(north)
 ```
 
-**Current implementation only handles simple inline constraints!**
+**Current implementation:**
+- ✅ Variables and condition expressions fully working
+- ✅ Print format actions fully working (printall, printew, printpbn, printcompact, printoneline)
+- ✅ Produce directive fully working
+- ❌ Statistical actions not yet implemented (average, frequency)
 
 ---
 

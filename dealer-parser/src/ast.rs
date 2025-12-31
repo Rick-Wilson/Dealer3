@@ -6,13 +6,67 @@ pub struct Program {
     pub statements: Vec<Statement>,
 }
 
-/// A statement is either an assignment or an expression
+/// A statement is either an assignment, action directive, or an expression
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     /// Variable assignment: name = expr
     Assignment { name: String, expr: Expr },
     /// Standalone expression (the final constraint)
     Expression(Expr),
+    /// Condition statement: condition expr
+    Condition(Expr),
+    /// Produce statement: produce N
+    Produce(usize),
+    /// Action statement: action printpbn/printall/etc
+    Action(ActionType),
+    /// Dealer statement: dealer N/E/S/W
+    Dealer(Position),
+    /// Vulnerable statement: vulnerable none/NS/EW/all
+    Vulnerable(VulnerabilityType),
+}
+
+/// Vulnerability types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VulnerabilityType {
+    None,
+    NS,
+    EW,
+    All,
+}
+
+impl VulnerabilityType {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "none" => Some(VulnerabilityType::None),
+            "ns" => Some(VulnerabilityType::NS),
+            "ew" => Some(VulnerabilityType::EW),
+            "all" => Some(VulnerabilityType::All),
+            _ => None,
+        }
+    }
+}
+
+/// Action types for output formatting
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionType {
+    PrintAll,
+    PrintEW,
+    PrintPBN,
+    PrintCompact,
+    PrintOneLine,
+}
+
+impl ActionType {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "printall" => Some(ActionType::PrintAll),
+            "printew" => Some(ActionType::PrintEW),
+            "printpbn" => Some(ActionType::PrintPBN),
+            "printcompact" => Some(ActionType::PrintCompact),
+            "printoneline" => Some(ActionType::PrintOneLine),
+            _ => None,
+        }
+    }
 }
 
 /// Abstract Syntax Tree for dealer constraints

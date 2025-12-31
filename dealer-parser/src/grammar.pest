@@ -7,9 +7,43 @@ COMMENT = _{
     ("/*" ~ (!"*/" ~ ANY)* ~ "*/")
 }
 
-// Top-level can be a constraint expression or variable assignment
-program = { SOI ~ (statement ~ ("\n" | ";")?)* ~ EOI }
-statement = { assignment | expr }
+// Top-level can be a dealer program with action blocks or simple statements
+program = { SOI ~ (dealer_statement ~ ("\n" | ";")?)* ~ EOI }
+
+// Dealer statement types
+dealer_statement = {
+    condition_stmt
+    | produce_stmt
+    | action_stmt
+    | dealer_stmt
+    | vulnerable_stmt
+    | assignment
+    | expr
+}
+
+// Action block keywords
+condition_stmt = { ^"condition" ~ expr }
+produce_stmt = { ^"produce" ~ literal }
+action_stmt = { ^"action" ~ action_type }
+dealer_stmt = { ^"dealer" ~ compass }
+vulnerable_stmt = { ^"vulnerable" ~ vulnerability }
+
+action_type = @{
+    ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline"
+}
+
+// Dealer position (compass)
+compass = @{
+    (^"north" | ^"south" | ^"east" | ^"west") ~ !(ASCII_ALPHANUMERIC | "_")
+    | (^"n" | ^"s" | ^"e" | ^"w") ~ !(ASCII_ALPHANUMERIC | "_")
+}
+
+// Vulnerability values
+vulnerability = @{
+    ^"none" | ^"ns" | ^"ew" | ^"all"
+}
+
+// Variable assignment
 assignment = { ident ~ "=" ~ expr }
 
 // Top-level constraint expression (for backward compatibility)
