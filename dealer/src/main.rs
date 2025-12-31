@@ -3,6 +3,7 @@ use dealer_core::DealGenerator;
 use dealer_eval::{eval, EvalContext};
 use dealer_pbn::format_oneline;
 use std::io::{self, Read};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
 #[command(name = "dealer")]
@@ -12,13 +13,21 @@ struct Args {
     #[arg(short = 'p', long = "produce", default_value = "10")]
     produce: usize,
 
-    /// Random seed for generation
-    #[arg(short = 's', long = "seed", default_value = "0")]
-    seed: u32,
+    /// Random seed for generation (defaults to current time)
+    #[arg(short = 's', long = "seed")]
+    seed: Option<u32>,
 }
 
 fn main() {
     let args = Args::parse();
+
+    // Use provided seed or default to current time
+    let seed = args.seed.unwrap_or_else(|| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs() as u32
+    });
 
     // Read constraint from stdin
     let mut constraint_str = String::new();
@@ -38,7 +47,7 @@ fn main() {
     };
 
     // Initialize deal generator
-    let mut generator = DealGenerator::new(args.seed);
+    let mut generator = DealGenerator::new(seed);
 
     let mut produced = 0;
     let mut generated = 0;
