@@ -521,10 +521,10 @@ Keep `docs/implementation_roadmap.md` updated with:
 - [Command-Line Switch Comparison](command_line_comparison.md) - Three-way comparison
 - [dealer.exe vs DealerV2_4 Switches](dealer_vs_dealer2_switches.md) - Categorized comparison
 - [Implementation Roadmap](implementation_roadmap.md) - Detailed implementation plan
-- [FILTER_LANGUAGE_STATUS.md](../FILTER_LANGUAGE_STATUS.md) - Language feature status
+- [FILTER_LANGUAGE_STATUS.md](FILTER_LANGUAGE_STATUS.md) - Language feature status
 - [PHASE_0_COMPLETION.md](PHASE_0_COMPLETION.md) - Phase 0 implementation report
 - [DEPRECATED_SWITCHES.md](DEPRECATED_SWITCHES.md) - Deprecated switch documentation
-- [CHANGELOG.md](../CHANGELOG.md) - Project changelog
+- [CHANGELOG.md](CHANGELOG.md) - Project changelog
 
 ---
 

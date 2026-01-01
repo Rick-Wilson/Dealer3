@@ -174,8 +174,8 @@ dealer --vulnerable NS     # Set vulnerability to NS
 - [dealer/src/main.rs](../dealer/src/main.rs) - Added -V, -v, -q switches; changed vulnerability to long form only
 
 ### Documentation
-- [CHANGELOG.md](../CHANGELOG.md) - Created with breaking change documentation
-- [FILTER_LANGUAGE_STATUS.md](../FILTER_LANGUAGE_STATUS.md) - Updated CLI switches table
+- [CHANGELOG.md](CHANGELOG.md) - Created with breaking change documentation
+- [FILTER_LANGUAGE_STATUS.md](FILTER_LANGUAGE_STATUS.md) - Updated CLI switches table
 - [docs/implementation_roadmap.md](implementation_roadmap.md) - Marked Sprint 1 items complete
 - [docs/PHASE_0_COMPLETION.md](PHASE_0_COMPLETION.md) - This document
 
@@ -338,7 +338,7 @@ None - Phase 0 is complete!
 
 - [Command-Line Switch Requirements](command_line_switch_requirements.md)
 - [Implementation Roadmap](implementation_roadmap.md)
-- [CHANGELOG](../CHANGELOG.md)
+- [CHANGELOG](CHANGELOG.md)
 - [dealer.exe vs DealerV2_4 Switches](dealer_vs_dealer2_switches.md)
 
 ---

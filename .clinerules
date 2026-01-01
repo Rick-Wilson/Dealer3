@@ -68,8 +68,8 @@ dealer3/
 ## Important Files to Know
 
 ### Documentation (Always Check These First!)
-- `FILTER_LANGUAGE_STATUS.md` - Complete feature implementation status
-- `CHANGELOG.md` - Breaking changes and migration guide
+- `docs/FILTER_LANGUAGE_STATUS.md` - Complete feature implementation status
+- `docs/CHANGELOG.md` - Breaking changes and migration guide
 - `docs/command_line_switch_requirements.md` - CLI switch strategy and status
 - `docs/PHASE_0_COMPLETION.md` - Phase 0 implementation report
 - `docs/DEPRECATED_SWITCHES.md` - Deprecated switches documentation

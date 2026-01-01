@@ -270,7 +270,7 @@ Error: Switch '-l' (library mode) is not supported in dealer3.
 
 - [Command-Line Switch Requirements](command_line_switch_requirements.md)
 - [dealer.exe vs DealerV2_4 Switches](dealer_vs_dealer2_switches.md)
-- [CHANGELOG](../CHANGELOG.md)
+- [CHANGELOG](CHANGELOG.md)
 - [Phase 0 Completion](PHASE_0_COMPLETION.md)
 
 ---
