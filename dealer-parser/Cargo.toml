@@ -2,7 +2,7 @@
 name = "dealer-parser"
 version = "0.1.0"
 edition = "2021"
-license = "Apache-2.0"
+license = "Unlicense"
 
 [dependencies]
 pest = "2.7"
