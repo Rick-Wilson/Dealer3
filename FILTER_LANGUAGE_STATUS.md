@@ -25,9 +25,14 @@ This document tracks the implementation status of the dealer constraint language
 
 **❌ Not Yet Implemented:**
 - Advanced functions (tricks, score, imps)
-- Predeal
 
-**Test Status:** 111 tests passing across all crates
+**Test Status:** 118 tests passing across all crates
+- dealer-core: 20 tests (including 7 predeal tests)
+- dealer-core shuffle: 7 tests
+- dealer-eval: 49 tests
+- dealer-parser: 23 tests
+- dealer-pbn: 16 tests
+- gnurandom: 3 tests
 
 ---
 
@@ -246,6 +251,7 @@ hcp(north) >= 15 ? (hearts(north) >= 5 ? 2 : 1) : 0
 | `action average "label" expr` | Calculate average of expression (optional label) | ✅ Working |
 | `action frequency "label" expr` | Display frequency distribution (optional label) | ✅ Working |
 | `action frequency "label" expr min max` | Frequency with explicit range | ✅ Working |
+| `predeal N/E/S/W cards` | Predeal specific cards to a position | ✅ Working |
 
 **Example Usage:**
 ```bash
@@ -280,6 +286,21 @@ EOF
 #  16     22 (22.00%)
 #  17     15 (15.00%)
 #  ...
+
+# Predeal specific cards to positions
+cat << 'EOF' | dealer -p 5 -s 1
+predeal north AS,AH,AD,AC
+condition hcp(north) >= 4
+EOF
+# North will have all 4 aces in every deal
+
+# Multiple predeal statements
+cat << 'EOF' | dealer -p 3
+predeal north AS,KS,QS
+predeal south AH,KH,QH
+condition hcp(north) + hcp(south) >= 12
+EOF
+# North gets ASKSQs, South gets AHKHQH
 ```
 
 **Implementation Details:**
@@ -300,6 +321,13 @@ EOF
   - Shows count and percentage for each value
   - Printed to stderr after all deals are generated
   - Multiple frequency statements can be used in one program
+- `predeal` assigns specific cards to a position before shuffling
+  - Syntax: `predeal position card1,card2,...` (e.g., `predeal north AS,KH,QD`)
+  - Cards use standard notation: rank (A,K,Q,J,T,9-2) + suit (S,H,D,C)
+  - Multiple predeal statements can assign cards to different positions
+  - Shuffle algorithm skips predealt cards (matches dealer.exe exactly)
+  - Error if same card dealt twice or more than 13 cards to one position
+  - Affects the random number sequence (rebuilds internal lookup table)
 - Precedence: Command-line flags > Input file keywords > Defaults
 - Backward compatible: simple expressions still work with command-line flags
 
@@ -311,7 +339,6 @@ EOF
 
 #### Control Commands
 - `generate N` - Generate exactly N deals (report all matches)
-- `predeal player cards` - Pre-assign specific cards
 - `pointcount name values` - Define custom point count
 - `altcount name values` - Alternative counting method
 
@@ -420,8 +447,8 @@ The grammar is then designed to require the `%s` marker for pure-digit shape pat
 ### CLI Limitations
 1. ✅ ~~Only "produce" mode (no "generate" mode)~~ **IMPLEMENTED** (Both `-p` produce and `-g` generate modes working)
 2. ✅ ~~Output format hardcoded to printoneline~~ **IMPLEMENTED** (5 formats available via `-f` flag or `action` keyword)
-3. ✅ ~~No action language support~~ **IMPLEMENTED** (condition, produce, action, dealer, vulnerable, average, frequency keywords working)
-4. No predeal support (vulnerability/dealer position only for PBN format output, not constraint evaluation)
+3. ✅ ~~No action language support~~ **IMPLEMENTED** (condition, produce, action, dealer, vulnerable, average, frequency, predeal keywords working)
+4. ✅ ~~No predeal support~~ **IMPLEMENTED** (predeal keyword assigns cards to positions before shuffling, matches dealer.exe exactly)
 5. ✅ ~~No average output~~ **IMPLEMENTED** (average action calculates and displays statistics)
 6. ✅ ~~No frequency output~~ **IMPLEMENTED** (frequency action displays distribution tables)
 
@@ -457,6 +484,7 @@ action printpbn    # ✅ Print formats working
 - ✅ Produce directive fully working
 - ✅ Average action fully working (calculates averages over matching deals)
 - ✅ Frequency action fully working (displays distribution tables with counts and percentages)
+- ✅ Predeal directive fully working (assigns specific cards to positions before shuffling)
 
 ---
 
@@ -468,7 +496,7 @@ action printpbn    # ✅ Print formats working
 3. ✅ ~~Multiple output format support~~ **IMPLEMENTED**
 4. ✅ ~~Statistical actions (average)~~ **IMPLEMENTED**
 5. ✅ ~~Frequency action~~ **IMPLEMENTED**
-6. Predeal support
+6. ✅ ~~Predeal support~~ **IMPLEMENTED**
 
 ### Medium Priority
 7. ✅ ~~Vulnerability/dealer position~~ **IMPLEMENTED**

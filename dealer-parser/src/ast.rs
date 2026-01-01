@@ -28,6 +28,8 @@ pub enum Statement {
     Dealer(Position),
     /// Vulnerable statement: vulnerable none/NS/EW/all
     Vulnerable(VulnerabilityType),
+    /// Predeal statement: predeal N/E/S/W cards
+    Predeal { position: Position, cards: Vec<dealer_core::Card> },
 }
 
 /// An average specification within an action statement

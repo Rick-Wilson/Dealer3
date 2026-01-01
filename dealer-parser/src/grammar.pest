@@ -17,6 +17,7 @@ dealer_statement = {
     | action_stmt
     | dealer_stmt
     | vulnerable_stmt
+    | predeal_stmt
     | assignment
     | expr
 }
@@ -27,6 +28,7 @@ produce_stmt = { ^"produce" ~ literal }
 action_stmt = { ^"action" ~ action_component ~ ("," ~ action_component)* }
 dealer_stmt = { ^"dealer" ~ compass }
 vulnerable_stmt = { ^"vulnerable" ~ vulnerability }
+predeal_stmt = { ^"predeal" ~ compass ~ card ~ ("," ~ card)* }
 
 // Action components (can be comma-separated)
 action_component = { average_spec | frequency_spec | action_type }

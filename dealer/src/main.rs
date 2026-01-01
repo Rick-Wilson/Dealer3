@@ -263,6 +263,16 @@ fn main() {
     // Initialize deal generator
     let mut generator = DealGenerator::new(seed);
 
+    // Apply predeal statements
+    for statement in &program.statements {
+        if let Statement::Predeal { position, cards } = statement {
+            if let Err(e) = generator.predeal(*position, cards) {
+                eprintln!("Predeal error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
     let mut produced = 0;
     let mut generated = 0;
 
