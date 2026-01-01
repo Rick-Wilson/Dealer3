@@ -77,7 +77,7 @@ pub fn eval_program(program: &Program, deal: &Deal) -> Result<i32, EvalError> {
                 // Condition statement is the constraint to evaluate
                 final_expr = Some(expr);
             }
-            Statement::Produce(_) | Statement::Action { .. } | Statement::Dealer(_) | Statement::Vulnerable(_) | Statement::Predeal { .. } => {
+            Statement::Produce(_) | Statement::Action { .. } | Statement::Dealer(_) | Statement::Vulnerable(_) | Statement::Predeal { .. } | Statement::CsvReport(_) => {
                 // These are handled by the CLI, not the evaluator
                 // Just skip them here
             }

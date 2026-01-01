@@ -30,6 +30,30 @@ pub enum Statement {
     Vulnerable(VulnerabilityType),
     /// Predeal statement: predeal N/E/S/W cards
     Predeal { position: Position, cards: Vec<dealer_core::Card> },
+    /// CSV report statement: csvrpt(terms...)
+    CsvReport(Vec<CsvTerm>),
+}
+
+/// A single term in a CSV report
+#[derive(Debug, Clone, PartialEq)]
+pub enum CsvTerm {
+    /// An expression to evaluate (e.g., hcp(north), controls(south))
+    Expression(Expr),
+    /// A string literal
+    String(String),
+    /// A single compass position (outputs hand in PBN format)
+    Compass(Position),
+    /// A side (NS or EW) - outputs two hands
+    Side(Side),
+    /// All four hands (DEAL keyword)
+    Deal,
+}
+
+/// Side enumeration for CSV output
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    NS,
+    EW,
 }
 
 /// An average specification within an action statement

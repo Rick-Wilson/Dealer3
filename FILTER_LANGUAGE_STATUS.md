@@ -252,6 +252,14 @@ hcp(north) >= 15 ? (hearts(north) >= 5 ? 2 : 1) : 0
 | `action frequency "label" expr` | Display frequency distribution (optional label) | ✅ Working |
 | `action frequency "label" expr min max` | Frequency with explicit range | ✅ Working |
 | `predeal N/E/S/W cards` | Predeal specific cards to a position | ✅ Working |
+| `csvrpt(terms...)` | Write CSV report to file (requires `-C FILE`) | ✅ Working |
+
+**CSV Report Terms:**
+- Expressions: `hcp(north)`, `controls(south)`, etc.
+- Strings: `"Strong hand"`, `"Opener"`, etc. (automatically quoted with single quotes)
+- Compass: `north`, `east`, `south`, `west` (outputs hand in PBN format)
+- Side: `ns`, `ew` (outputs two hands)
+- All hands: `deal` (outputs all four hands)
 
 **Example Usage:**
 ```bash
@@ -292,7 +300,43 @@ cat << 'EOF' | dealer -p 5 -s 1
 predeal north AS,AH,AD,AC
 condition hcp(north) >= 4
 EOF
-# North will have all 4 aces in every deal
+
+# CSV export examples
+cat << 'EOF' | dealer -p 10 -s 1 -C results.csv
+condition hcp(north) >= 20
+csvrpt(north, hcp(north), controls(north), "Strong hand")
+EOF
+# Creates results.csv with lines like:
+#  K.AQ3.AK7.AQ6532,22,8,'Strong hand'
+
+# CSV with partnerships and multiple expressions
+cat << 'EOF' | dealer -p 100 -C w:partnerships.csv -q
+condition hcp(north) + hcp(south) >= 25
+csvrpt("NS Partnership", ns, hcp(north), hcp(south), hcp(north) + hcp(south))
+EOF
+# Creates/overwrites partnerships.csv (w: prefix) with format:
+#  'NS Partnership',KQ4.QJ982..AKQ43 9.K54.KQT732.652,17,8,25
+
+# CSV with all four hands
+cat << 'EOF' | dealer -p 50 -C deals.csv
+condition hcp(north) >= 15
+csvrpt(deal, hcp(north), hcp(east), hcp(south), hcp(west))
+EOF
+# Outputs all four hands in PBN format with HCP for each position
+```
+
+**CSV File Modes:**
+- `-C filename` or `--CSV filename` - Append mode (default) - adds to existing file
+- `-C w:filename` or `--CSV w:filename` - Write mode - overwrites file
+
+**PBN Title Metadata:**
+```bash
+# Add custom title to PBN output
+echo "hcp(north) >= 20" | dealer -p 10 -f pbn -T "Strong Opening Hands"
+# Or use long form
+echo "hcp(north) >= 20" | dealer -p 10 -f pbn --title "Strong Opening Hands"
+# Output includes: [Event "Strong Opening Hands"]
+```
 
 # Multiple predeal statements
 cat << 'EOF' | dealer -p 3
@@ -355,7 +399,13 @@ EOF
 | `-s SEED` / `--seed SEED` | Set random seed for reproducible results | ✅ Implemented |
 | `-f FORMAT` / `--format FORMAT` | Output format (oneline, printall, printew, printpbn, printcompact) | ✅ Implemented |
 | `-d POS` / `--dealer POS` | Dealer position for PBN (N/E/S/W) | ✅ Implemented |
-| `-v VULN` / `--vulnerable VULN` | Vulnerability for PBN (None/NS/EW/All) | ✅ Implemented |
+| `--vulnerable VULN` | Vulnerability for PBN (None/NS/EW/All) | ✅ Implemented |
+| `-v` / `--verbose` | Verbose output, prints statistics at end of run (matches dealer.exe) | ✅ Implemented |
+| `-V` / `--version` | Print version information and exit (matches dealer.exe) | ✅ Implemented |
+| `-q` / `--quiet` | Quiet mode - suppress deal output, only show statistics (matches dealer.exe) | ✅ Implemented |
+| `-m` / `--progress` | Show progress meter during generation (every 10,000 deals, matches dealer.exe) | ✅ Implemented |
+
+**Note**: The `-v` switch was changed from vulnerability to verbose to match dealer.exe behavior. Use `--vulnerable` (long form) for vulnerability setting.
 
 ### Produce vs Generate Mode
 

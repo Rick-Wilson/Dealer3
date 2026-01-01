@@ -217,6 +217,69 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
 
             Ok(Statement::Predeal { position, cards })
         }
+        Rule::csvrpt_stmt => {
+            let mut csv_terms = Vec::new();
+
+            for term_pair in inner.into_inner() {
+                if term_pair.as_rule() == Rule::csv_term {
+                    // Check if csv_term has inner content or if it's a direct match (like "deal")
+                    let term_str = term_pair.as_str().to_lowercase();
+
+                    let csv_term = if term_str == "deal" {
+                        CsvTerm::Deal
+                    } else if let Some(term_inner) = term_pair.into_inner().next() {
+                        match term_inner.as_rule() {
+                        Rule::expr => CsvTerm::Expression(build_ast(term_inner)?),
+                        Rule::string_literal => {
+                            let s = term_inner.as_str();
+                            // Strip quotes
+                            CsvTerm::String(s[1..s.len()-1].to_string())
+                        }
+                        Rule::compass => {
+                            let compass_str = term_inner.as_str().to_lowercase();
+                            let position = match compass_str.as_str() {
+                                "north" | "n" => Position::North,
+                                "south" | "s" => Position::South,
+                                "east" | "e" => Position::East,
+                                "west" | "w" => Position::West,
+                                _ => {
+                                    return Err(ParseError {
+                                        message: format!("Invalid compass: {}", compass_str),
+                                    })
+                                }
+                            };
+                            CsvTerm::Compass(position)
+                        }
+                        Rule::side => {
+                            let side_str = term_inner.as_str().to_lowercase();
+                            match side_str.as_str() {
+                                "ns" => CsvTerm::Side(Side::NS),
+                                "ew" => CsvTerm::Side(Side::EW),
+                                _ => {
+                                    return Err(ParseError {
+                                        message: format!("Invalid side: {}", side_str),
+                                    })
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(ParseError {
+                                message: format!("Unexpected csv_term rule: {:?}", term_inner.as_rule()),
+                            })
+                        }
+                    }
+                    } else {
+                        return Err(ParseError {
+                            message: format!("Unexpected csv_term format: {}", term_str),
+                        });
+                    };
+
+                    csv_terms.push(csv_term);
+                }
+            }
+
+            Ok(Statement::CsvReport(csv_terms))
+        }
         Rule::assignment => {
             let mut parts = inner.into_inner();
             let name = parts.next().unwrap().as_str().to_string();

@@ -18,6 +18,7 @@ dealer_statement = {
     | dealer_stmt
     | vulnerable_stmt
     | predeal_stmt
+    | csvrpt_stmt
     | assignment
     | expr
 }
@@ -29,6 +30,18 @@ action_stmt = { ^"action" ~ action_component ~ ("," ~ action_component)* }
 dealer_stmt = { ^"dealer" ~ compass }
 vulnerable_stmt = { ^"vulnerable" ~ vulnerability }
 predeal_stmt = { ^"predeal" ~ compass ~ card ~ ("," ~ card)* }
+csvrpt_stmt = { ^"csvrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
+
+// CSV terms for csvrpt
+csv_term = {
+    ^"deal" |
+    side |
+    compass |
+    string_literal |
+    expr
+}
+
+side = @{ ^"ns" | ^"ew" }
 
 // Action components (can be comma-separated)
 action_component = { average_spec | frequency_spec | action_type }

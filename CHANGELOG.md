@@ -1,0 +1,79 @@
+# Changelog
+
+All notable changes to dealer3 will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- `-v/--verbose` switch to enable verbose output (matches dealer.exe -v behavior)
+- `-V/--version` switch to print version information and exit (matches dealer.exe -V behavior)
+- `-q/--quiet` switch to suppress deal output, only showing statistics (matches dealer.exe -q behavior)
+- `-m/--progress` switch to show progress meter during generation (matches dealer.exe -m behavior)
+- `--vulnerable` long-form option for setting vulnerability
+- Deprecated switch detection with helpful error messages for `-2`, `-3`, `-e`, `-u`, `-l`
+
+### Changed
+- **BREAKING**: Removed `-v` short form for vulnerability setting
+  - Use `--vulnerable` instead (long form only)
+  - This change makes dealer3 compatible with dealer.exe where `-v` means verbose
+  - Migration: Replace `-v none` with `--vulnerable none` in your scripts
+
+### Removed
+- **BREAKING**: `-v` short option no longer sets vulnerability (use `--vulnerable` instead)
+
+### Deprecated
+- `-2` (2-way swapping) - Not supported, incompatible with predeal
+- `-3` (3-way swapping) - Not supported, incompatible with predeal
+- `-e` (exhaust mode) - Not supported, experimental feature never completed
+- `-u` (upper/lowercase) - Not supported, cosmetic feature
+- `-l` (library mode) - Not supported, conflicting meanings in dealer.exe vs DealerV2_4
+
+## [0.1.0] - 2024-XX-XX
+
+### Added
+- Initial release with core functionality
+- Support for dealer.exe constraint language
+- Predeal support matching dealer.exe exactly
+- Multiple output formats (printall, printew, printpbn, printcompact, printoneline)
+- Average and frequency actions
+- Command-line switches: `-p`, `-g`, `-s`, `-f`, `-d`, `-v` (vulnerability)
+
+---
+
+## Migration Guide: 0.1.0 → 0.2.0 (Unreleased)
+
+### Command-Line Switches
+
+**Before (0.1.0)**:
+```bash
+dealer -v none -p 10          # -v for vulnerability
+dealer -v NS -f pbn           # -v for vulnerability
+```
+
+**After (0.2.0+)**:
+```bash
+dealer --vulnerable none -v -p 10    # --vulnerable (long), -v for verbose
+dealer --vulnerable NS -f pbn        # --vulnerable (long)
+```
+
+### Why This Change?
+
+The `-v` switch in dealer.exe means "verbose" (toggle statistics output). Using it for vulnerability created incompatibility with:
+1. BridgeBase Online (BBO), which uses dealer.exe
+2. Scripts written for dealer.exe
+3. User expectations from dealer.exe
+
+By changing to `--vulnerable` (long form only), we:
+- ✅ Match dealer.exe behavior for `-v` (verbose)
+- ✅ Enable BBO compatibility
+- ✅ Add `-V` for version (standard practice)
+- ✅ Keep vulnerability support via clear long form
+
+### Backward Compatibility
+
+This is a **pre-1.0 breaking change**. Since dealer3 is still in 0.x development, we can make this change before the 1.0 release to ensure maximum compatibility with dealer.exe and BBO.
+
+After this change, dealer3 will be **command-line compatible** with most dealer.exe scripts.

@@ -137,12 +137,13 @@ pub fn format_printpbn(
 ) -> String {
     let mut result = String::new();
 
-    // Event tag
-    let event_str = event_name.unwrap_or("-");
-    if let Some(seed_val) = seed {
+    // Event tag - title takes precedence over seed
+    if let Some(title) = event_name {
+        result.push_str(&format!("[Event \"{}\"]\n", title));
+    } else if let Some(seed_val) = seed {
         result.push_str(&format!("[Event \"Hand simulated by dealer, seed {}\"]\n", seed_val));
     } else {
-        result.push_str(&format!("[Event \"{}\"]\n", event_str));
+        result.push_str("[Event \"-\"]\n");
     }
 
     // Site and Date
@@ -443,4 +444,25 @@ mod tests {
             assert_eq!(line.matches('.').count(), 3);
         }
     }
+}
+
+/// Format a single hand in PBN format (without position prefix)
+/// Returns a string like "AKQ.JT9.876.5432"
+pub fn format_hand_pbn(hand: &dealer_core::Hand) -> String {
+    let mut result = String::new();
+
+    for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
+        let mut cards: Vec<_> = hand.cards_in_suit(suit);
+        cards.sort_by(|a, b| b.rank.cmp(&a.rank)); // High to low
+
+        for card in cards {
+            result.push(rank_char(card.rank));
+        }
+
+        if suit != Suit::Clubs {
+            result.push('.');
+        }
+    }
+
+    result
 }

@@ -2,8 +2,9 @@ use clap::Parser;
 use dealer_core::{DealGenerator, Position};
 use dealer_eval::{eval, eval_program, EvalContext};
 use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
-use dealer_pbn::{format_oneline, format_printall, format_printew, format_printpbn, format_printcompact, Vulnerability};
-use std::io::{self, Read};
+use dealer_pbn::{format_oneline, format_printall, format_printew, format_printpbn, format_printcompact, format_hand_pbn, Vulnerability};
+use std::fs::OpenOptions;
+use std::io::{self, Read, Write, BufWriter};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
@@ -33,8 +34,61 @@ struct Args {
     dealer: Option<DealerPosition>,
 
     /// Vulnerability (None/NS/EW/All) - used with PBN format (defaults to rotating, or value from input file if not specified)
-    #[arg(short = 'v', long = "vulnerable")]
+    #[arg(long = "vulnerable")]
     vulnerability: Option<VulnerabilityArg>,
+
+    /// Verbose output, prints statistics at the end of the run (matches dealer.exe -v)
+    #[arg(short = 'v', long = "verbose")]
+    verbose: bool,
+
+    /// Print version information and exit (matches dealer.exe -V)
+    #[arg(short = 'V', long = "version")]
+    version: bool,
+
+    /// Print license information and exit
+    #[arg(long = "license")]
+    license: bool,
+
+    /// Print credits and exit
+    #[arg(long = "credits")]
+    credits: bool,
+
+    /// Quiet mode - suppress deal output, only show statistics (matches dealer.exe -q)
+    #[arg(short = 'q', long = "quiet")]
+    quiet: bool,
+
+    /// Show progress meter during generation (matches dealer.exe -m)
+    #[arg(short = 'm', long = "progress")]
+    progress: bool,
+
+    /// CSV output file (append mode by default, use 'w:filename' for write mode)
+    #[arg(short = 'C', long = "CSV")]
+    csv_file: Option<String>,
+
+    /// Title metadata for PBN output
+    #[arg(short = 'T', long = "title")]
+    title: Option<String>,
+
+    // Deprecated switches - parse them to show helpful error messages
+    /// DEPRECATED: 2-way swapping mode (not supported - incompatible with predeal)
+    #[arg(short = '2', hide = true)]
+    swap_2: bool,
+
+    /// DEPRECATED: 3-way swapping mode (not supported - incompatible with predeal)
+    #[arg(short = '3', hide = true)]
+    swap_3: bool,
+
+    /// DEPRECATED: Exhaust mode (experimental feature never completed)
+    #[arg(short = 'e', hide = true)]
+    exhaust: bool,
+
+    /// DEPRECATED: Upper/lowercase toggle (cosmetic feature not implemented)
+    #[arg(short = 'u', hide = true)]
+    uppercase: bool,
+
+    /// DEPRECATED: Library mode (conflicting meanings in dealer.exe vs DealerV2_4)
+    #[arg(short = 'l', hide = true)]
+    library: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,6 +203,115 @@ fn vulnerability_type_to_vulnerability(vt: VulnerabilityType) -> Vulnerability {
 fn main() {
     let args = Args::parse();
 
+    // Handle version flag (matches dealer.exe -V behavior)
+    if args.version {
+        println!("dealer3 version {}", env!("CARGO_PKG_VERSION"));
+        println!("Rust implementation of dealer.exe");
+        println!("Compatible with dealer.exe and DealerV2_4");
+        std::process::exit(0);
+    }
+
+    // Handle license flag
+    if args.license {
+        println!("License");
+        println!("-------");
+        println!();
+        println!("This software is released into the public domain under The Unlicense.");
+        println!();
+        println!("You are free to use, modify, distribute, and incorporate this software");
+        println!("for any purpose, with or without modification.");
+        println!();
+        println!("The original dealer program was also released into the public domain.");
+        println!("Other independent implementations may be licensed differently.");
+        println!();
+        println!("See the LICENSE file in the source repository for full details.");
+        std::process::exit(0);
+    }
+
+    // Handle credits flag
+    if args.credits {
+        println!("Credits");
+        println!("-------");
+        println!();
+        println!("Original dealer");
+        println!("  Hans van Staveren (public domain)");
+        println!();
+        println!("Key contributors");
+        println!("  Henk Uijterwaal");
+        println!("  Bruce Moore");
+        println!("  Francois Dellacherie");
+        println!("  Robin Barker");
+        println!("  Danil Suits");
+        println!("  Alex Martelli");
+        println!("  Paul Hankin");
+        println!("  Micke Hovmoller");
+        println!("  Paul Baxter");
+        println!();
+        println!("dealer2");
+        println!("  Greg Morse (GPLv3, independent)");
+        println!();
+        println!("dealer3 (Rust edition)");
+        println!("  Rick Wilson");
+        println!();
+        println!("See documentation for full contribution details.");
+        std::process::exit(0);
+    }
+
+    // Check for deprecated switches and provide helpful error messages
+    if args.swap_2 {
+        eprintln!("Error: Switch '-2' (2-way swapping) is not supported in dealer3.");
+        eprintln!();
+        eprintln!("Reason: Swapping modes are incompatible with predeal functionality,");
+        eprintln!("        which is a core feature of dealer3.");
+        eprintln!();
+        eprintln!("Suggestion: Remove the '-2' switch from your command.");
+        eprintln!("            If you need swapping, use the original dealer.exe.");
+        std::process::exit(1);
+    }
+
+    if args.swap_3 {
+        eprintln!("Error: Switch '-3' (3-way swapping) is not supported in dealer3.");
+        eprintln!();
+        eprintln!("Reason: Swapping modes are incompatible with predeal functionality,");
+        eprintln!("        which is a core feature of dealer3.");
+        eprintln!();
+        eprintln!("Suggestion: Remove the '-3' switch from your command.");
+        eprintln!("            If you need swapping, use the original dealer.exe.");
+        std::process::exit(1);
+    }
+
+    if args.exhaust {
+        eprintln!("Error: Switch '-e' (exhaust mode) is not supported in dealer3.");
+        eprintln!();
+        eprintln!("Reason: Exhaust mode was an experimental alpha feature in dealer.exe");
+        eprintln!("        that was never completed or documented.");
+        eprintln!();
+        eprintln!("Suggestion: Remove the '-e' switch from your command.");
+        std::process::exit(1);
+    }
+
+    if args.uppercase {
+        eprintln!("Error: Switch '-u' (upper/lowercase toggle) is not supported in dealer3.");
+        eprintln!();
+        eprintln!("Reason: This is a cosmetic feature with low priority.");
+        eprintln!();
+        eprintln!("Suggestion: Remove the '-u' switch from your command.");
+        eprintln!("            dealer3 uses standard uppercase card symbols (AKQJT).");
+        std::process::exit(1);
+    }
+
+    if args.library {
+        eprintln!("Error: Switch '-l' (library mode) is not supported in dealer3.");
+        eprintln!();
+        eprintln!("Reason: The '-l' switch has conflicting meanings:");
+        eprintln!("        - In dealer.exe: Read deals from library.dat");
+        eprintln!("        - In DealerV2_4: Export to DL52 format");
+        eprintln!();
+        eprintln!("Suggestion: Remove the '-l' switch from your command.");
+        eprintln!("            Future versions may add library support with a different switch.");
+        std::process::exit(1);
+    }
+
     // Use provided seed or default to current time (microsecond resolution)
     let seed = args.seed.unwrap_or_else(|| {
         SystemTime::now()
@@ -156,6 +319,31 @@ fn main() {
             .expect("Time went backwards")
             .as_micros() as u32
     });
+
+    // Open CSV file if requested
+    let mut csv_writer: Option<BufWriter<std::fs::File>> = None;
+    if let Some(csv_arg) = &args.csv_file {
+        let (filename, write_mode) = if csv_arg.starts_with("w:") {
+            (&csv_arg[2..], true)
+        } else {
+            (csv_arg.as_str(), false)
+        };
+
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(!write_mode)
+            .truncate(write_mode)
+            .open(filename)
+            .unwrap_or_else(|e| {
+                eprintln!("ERROR!! Open CSV Report file FAILED");
+                eprintln!("ERROR!! Can't open [{}] for {}", filename, if write_mode { "write" } else { "append" });
+                eprintln!("{}", e);
+                std::process::exit(1);
+            });
+
+        csv_writer = Some(BufWriter::new(file));
+    }
 
     // Read constraint from stdin
     let mut constraint_str = String::new();
@@ -189,6 +377,10 @@ fn main() {
     // Track frequency statements: (label, expression, histogram, range)
     use std::collections::HashMap;
     let mut frequencies: Vec<(Option<String>, Expr, HashMap<i32, usize>, Option<(i32, i32)>)> = Vec::new();
+
+    // Track CSV report statements
+    use dealer_parser::{CsvTerm, Side};
+    let mut csv_reports: Vec<Vec<CsvTerm>> = Vec::new();
 
     for statement in &program.statements {
         match statement {
@@ -228,6 +420,9 @@ fn main() {
                     VulnerabilityType::EW => VulnerabilityArg::EW,
                     VulnerabilityType::All => VulnerabilityArg::All,
                 });
+            }
+            Statement::CsvReport(terms) => {
+                csv_reports.push(terms.clone());
             }
             _ => {}
         }
@@ -276,6 +471,10 @@ fn main() {
     let mut produced = 0;
     let mut generated = 0;
 
+    // Progress meter variables (matches dealer.exe behavior)
+    let progress_interval = 10000; // Show progress every 10,000 deals
+    let mut last_progress_report = 0;
+
     // Generate deals until we reach the limit
     // In produce mode: stop when we've produced enough matching deals
     // In generate mode: stop when we've generated enough total deals
@@ -286,6 +485,16 @@ fn main() {
     } {
         let deal = generator.generate();
         generated += 1;
+
+        // Show progress meter if enabled (matches dealer.exe -m)
+        if args.progress && generated - last_progress_report >= progress_interval {
+            let elapsed = start_time.elapsed().unwrap().as_secs_f64();
+            eprintln!(
+                "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
+                generated, produced, elapsed
+            );
+            last_progress_report = generated;
+        }
 
         // Evaluate program (includes variable assignments and final constraint)
         match eval_program(&program, &deal) {
@@ -323,18 +532,81 @@ fn main() {
                     }
                 }
 
-                let output = match output_format {
-                    OutputFormat::PrintAll => format_printall(&deal, produced),
-                    OutputFormat::PrintEW => format_printew(&deal),
-                    OutputFormat::PrintPBN => {
-                        let dealer_pos = dealer_position.map(|d| d.into());
-                        let vuln = vulnerability.map(|v| v.into());
-                        format_printpbn(&deal, produced, dealer_pos, vuln, None, Some(seed))
+                // In quiet mode, don't print deals (only statistics)
+                if !args.quiet {
+                    let output = match output_format {
+                        OutputFormat::PrintAll => format_printall(&deal, produced),
+                        OutputFormat::PrintEW => format_printew(&deal),
+                        OutputFormat::PrintPBN => {
+                            let dealer_pos = dealer_position.map(|d| d.into());
+                            let vuln = vulnerability.map(|v| v.into());
+                            let event_name = args.title.as_deref();
+                            format_printpbn(&deal, produced, dealer_pos, vuln, event_name, Some(seed))
+                        }
+                        OutputFormat::PrintCompact => format_printcompact(&deal),
+                        OutputFormat::PrintOneLine => format_oneline(&deal),
+                    };
+                    print!("{}", output);
+                }
+
+                // Write CSV reports if any
+                if !csv_reports.is_empty() && csv_writer.is_some() {
+                    let ctx = EvalContext::new(&deal);
+
+                    for csv_terms in &csv_reports {
+                        let mut line_parts: Vec<String> = Vec::new();
+
+                        for term in csv_terms {
+                            match term {
+                                CsvTerm::Expression(expr) => {
+                                    match eval(expr, &ctx) {
+                                        Ok(val) => line_parts.push(val.to_string()),
+                                        Err(e) => {
+                                            eprintln!("CSV evaluation error: {}", e);
+                                            std::process::exit(1);
+                                        }
+                                    }
+                                }
+                                CsvTerm::String(s) => {
+                                    line_parts.push(format!("'{}'", s));
+                                }
+                                CsvTerm::Compass(pos) => {
+                                    let hand = deal.hand(*pos);
+                                    line_parts.push(format_hand_pbn(hand));
+                                }
+                                CsvTerm::Side(side) => {
+                                    let (pos1, pos2) = match side {
+                                        Side::NS => (Position::North, Position::South),
+                                        Side::EW => (Position::East, Position::West),
+                                    };
+                                    let hand1 = deal.hand(pos1);
+                                    let hand2 = deal.hand(pos2);
+                                    line_parts.push(format!("{} {}", format_hand_pbn(hand1), format_hand_pbn(hand2)));
+                                }
+                                CsvTerm::Deal => {
+                                    let n = deal.hand(Position::North);
+                                    let e = deal.hand(Position::East);
+                                    let s = deal.hand(Position::South);
+                                    let w = deal.hand(Position::West);
+                                    line_parts.push(format!("{} {} {} {}",
+                                        format_hand_pbn(n),
+                                        format_hand_pbn(e),
+                                        format_hand_pbn(s),
+                                        format_hand_pbn(w)));
+                                }
+                            }
+                        }
+
+                        // Write line with space before first item, commas between items
+                        if let Some(writer) = csv_writer.as_mut() {
+                            write!(writer, " {}\n", line_parts.join(",")).unwrap_or_else(|e| {
+                                eprintln!("CSV write error: {}", e);
+                                std::process::exit(1);
+                            });
+                        }
                     }
-                    OutputFormat::PrintCompact => format_printcompact(&deal),
-                    OutputFormat::PrintOneLine => format_oneline(&deal),
-                };
-                print!("{}", output);
+                }
+
                 produced += 1;
             }
             Ok(_) => {
@@ -400,9 +672,14 @@ fn main() {
     }
 
     // Print statistics to stderr (like dealer.exe does)
-    eprintln!();
-    eprintln!("Generated {} hands", generated);
-    eprintln!("Produced {} hands", produced);
-    eprintln!("Initial random seed {}", seed);
-    eprintln!("Time needed  {:7.3} sec", elapsed_secs);
+    // In verbose mode (-v), always show stats
+    // Without verbose mode, show stats by default (dealer3 behavior)
+    // Note: This matches dealer.exe behavior where -v enables verbose output
+    if args.verbose {
+        eprintln!();
+        eprintln!("Generated {} hands", generated);
+        eprintln!("Produced {} hands", produced);
+        eprintln!("Initial random seed {}", seed);
+        eprintln!("Time needed  {:7.3} sec", elapsed_secs);
+    }
 }
