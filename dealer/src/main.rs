@@ -69,6 +69,22 @@ struct Args {
     #[arg(short = 'T', long = "title")]
     title: Option<String>,
 
+    /// Predeal cards to North (format: S8743,HA9,D642,CQT64)
+    #[arg(short = 'N', long = "north")]
+    north_predeal: Option<String>,
+
+    /// Predeal cards to East (format: S8743,HA9,D642,CQT64)
+    #[arg(short = 'E', long = "east")]
+    east_predeal: Option<String>,
+
+    /// Predeal cards to South (format: S8743,HA9,D642,CQT64)
+    #[arg(short = 'S', long = "south")]
+    south_predeal: Option<String>,
+
+    /// Predeal cards to West (format: S8743,HA9,D642,CQT64)
+    #[arg(short = 'W', long = "west")]
+    west_predeal: Option<String>,
+
     // Deprecated switches - parse them to show helpful error messages
     /// DEPRECATED: 2-way swapping mode (not supported - incompatible with predeal)
     #[arg(short = '2', hide = true)]
@@ -198,6 +214,63 @@ fn vulnerability_type_to_vulnerability(vt: VulnerabilityType) -> Vulnerability {
         VulnerabilityType::EW => Vulnerability::EW,
         VulnerabilityType::All => Vulnerability::All,
     }
+}
+
+/// Parse predeal card string (format: S8743,HA9,D642,CQT64)
+/// Returns a vector of cards
+fn parse_predeal_cards(card_str: &str) -> Result<Vec<dealer_core::Card>, String> {
+    use dealer_core::{Card, Suit, Rank};
+
+    let mut cards = Vec::new();
+
+    // Split by comma
+    for token in card_str.split(',') {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+
+        // First character is suit indicator
+        if token.is_empty() {
+            return Err("Empty card token".to_string());
+        }
+
+        let mut chars = token.chars();
+        let suit_char = chars.next().unwrap().to_uppercase().next().unwrap();
+
+        let suit = match suit_char {
+            'S' => Suit::Spades,
+            'H' => Suit::Hearts,
+            'D' => Suit::Diamonds,
+            'C' => Suit::Clubs,
+            _ => return Err(format!("Invalid suit character: {}", suit_char)),
+        };
+
+        // Remaining characters are ranks
+        for rank_char in chars {
+            let rank_char = rank_char.to_uppercase().next().unwrap();
+            let rank = match rank_char {
+                'A' => Rank::Ace,
+                'K' => Rank::King,
+                'Q' => Rank::Queen,
+                'J' => Rank::Jack,
+                'T' => Rank::Ten,
+                '9' => Rank::Nine,
+                '8' => Rank::Eight,
+                '7' => Rank::Seven,
+                '6' => Rank::Six,
+                '5' => Rank::Five,
+                '4' => Rank::Four,
+                '3' => Rank::Three,
+                '2' => Rank::Two,
+                _ => return Err(format!("Invalid rank character: {}", rank_char)),
+            };
+
+            cards.push(Card::new(suit, rank));
+        }
+    }
+
+    Ok(cards)
 }
 
 fn main() {
@@ -458,7 +531,68 @@ fn main() {
     // Initialize deal generator
     let mut generator = DealGenerator::new(seed);
 
-    // Apply predeal statements
+    // Apply command-line predeal switches (these take precedence over input file predeals)
+    if let Some(ref cards_str) = args.north_predeal {
+        match parse_predeal_cards(cards_str) {
+            Ok(cards) => {
+                if let Err(e) = generator.predeal(Position::North, &cards) {
+                    eprintln!("Error predealing to North: {}", e);
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error parsing North predeal cards '{}': {}", cards_str, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if let Some(ref cards_str) = args.east_predeal {
+        match parse_predeal_cards(cards_str) {
+            Ok(cards) => {
+                if let Err(e) = generator.predeal(Position::East, &cards) {
+                    eprintln!("Error predealing to East: {}", e);
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error parsing East predeal cards '{}': {}", cards_str, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if let Some(ref cards_str) = args.south_predeal {
+        match parse_predeal_cards(cards_str) {
+            Ok(cards) => {
+                if let Err(e) = generator.predeal(Position::South, &cards) {
+                    eprintln!("Error predealing to South: {}", e);
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error parsing South predeal cards '{}': {}", cards_str, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if let Some(ref cards_str) = args.west_predeal {
+        match parse_predeal_cards(cards_str) {
+            Ok(cards) => {
+                if let Err(e) = generator.predeal(Position::West, &cards) {
+                    eprintln!("Error predealing to West: {}", e);
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error parsing West predeal cards '{}': {}", cards_str, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Apply predeal statements from input file
     for statement in &program.statements {
         if let Statement::Predeal { position, cards } = statement {
             if let Err(e) = generator.predeal(*position, cards) {
