@@ -4,7 +4,7 @@
 //! the number of tricks that can be made by each side in each denomination
 //! when all four hands are visible.
 
-use dealer_core::{Card, Deal, Position, Rank, Suit};
+use dealer_core::{Card, Deal, Position, Suit};
 use std::collections::HashMap;
 
 /// Helper function to get the next position in clockwise order
@@ -431,7 +431,7 @@ impl DoubleDummySolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dealer_core::DealGenerator;
+    use dealer_core::{DealGenerator, Rank};
 
     #[test]
     fn test_denomination_conversion() {
