@@ -1,6 +1,264 @@
 use dealer_core::{Card, Deal, Position, Suit};
+use dealer_dds::{Denomination, DoubleDummySolver};
 use dealer_parser::{BinaryOp, Expr, Function, Program, Shape, ShapePattern, Statement, UnaryOp};
 use std::collections::HashMap;
+
+/// IMP conversion table (from DealerV2_4)
+/// Maps score differences to IMP values
+/// Table[i] represents the minimum score difference for (i+1) IMPs
+const IMP_TABLE: [i32; 24] = [
+    10, 40, 80, 120, 160, 210, 260, 310, 360, 410, 490, 590, 740, 890, 1090, 1190, 1490, 1740,
+    1990, 2240, 2490, 2990, 3490, 3990,
+];
+
+/// Convert score difference to IMPs
+///
+/// Uses standard IMP table:
+/// - 0-9: 0 IMPs
+/// - 10-39: 1 IMP
+/// - 40-79: 2 IMPs
+/// - ... up to 3990+: 24 IMPs
+///
+/// Sign is preserved (negative score difference returns negative IMPs)
+fn score_to_imps(score_diff: i32) -> i32 {
+    let abs_diff = score_diff.abs();
+
+    if abs_diff == 0 {
+        return 0;
+    }
+
+    // Find the IMP value by searching the table
+    // Table[i] represents the minimum score for (i+1) IMPs
+    let mut imps = 0;
+    for (i, &threshold) in IMP_TABLE.iter().enumerate() {
+        if abs_diff >= threshold {
+            imps = (i + 1) as i32;
+        } else {
+            break;
+        }
+    }
+
+    // Preserve sign
+    if score_diff < 0 {
+        -imps
+    } else {
+        imps
+    }
+}
+
+/// Strain (denomination) for contract scoring
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strain {
+    Clubs,
+    Diamonds,
+    Hearts,
+    Spades,
+    NoTrump,
+}
+
+impl Strain {
+    /// Returns true if this is a minor suit (clubs or diamonds)
+    fn is_minor(&self) -> bool {
+        matches!(self, Strain::Clubs | Strain::Diamonds)
+    }
+}
+
+/// Doubled state of a contract
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Doubled {
+    Undoubled,
+    Doubled,
+    Redoubled,
+}
+
+/// A bridge contract
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Contract {
+    pub level: u8, // 1-7
+    pub strain: Strain,
+    pub doubled: Doubled,
+}
+
+impl Contract {
+    /// Parse a contract string like "3n", "4s", "7nt", "3hx", "3hxx"
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.to_lowercase();
+        let chars: Vec<char> = s.chars().collect();
+
+        if chars.is_empty() {
+            return None;
+        }
+
+        // First character must be level 1-7
+        let level = chars[0].to_digit(10)? as u8;
+        if !(1..=7).contains(&level) {
+            return None;
+        }
+
+        if chars.len() < 2 {
+            return None;
+        }
+
+        // Parse strain
+        let (strain, rest_start) = if chars.len() >= 3 && chars[1] == 'n' && chars[2] == 't' {
+            (Strain::NoTrump, 3)
+        } else {
+            let strain = match chars[1] {
+                'c' => Strain::Clubs,
+                'd' => Strain::Diamonds,
+                'h' => Strain::Hearts,
+                's' => Strain::Spades,
+                'n' => Strain::NoTrump,
+                _ => return None,
+            };
+            (strain, 2)
+        };
+
+        // Parse doubled state (x, xx, dbl, rdbl)
+        let rest: String = chars[rest_start..].iter().collect();
+        let doubled = if rest.is_empty() {
+            Doubled::Undoubled
+        } else if rest == "x" || rest == "dbl" {
+            Doubled::Doubled
+        } else if rest == "xx" || rest == "rdbl" {
+            Doubled::Redoubled
+        } else {
+            return None;
+        };
+
+        Some(Contract {
+            level,
+            strain,
+            doubled,
+        })
+    }
+}
+
+/// Calculate the score for a contract
+///
+/// # Arguments
+/// * `vulnerable` - true if declarer is vulnerable
+/// * `contract` - the contract being played
+/// * `tricks` - tricks taken by declarer (0-13)
+///
+/// # Returns
+/// Positive score if contract made, negative if failed
+pub fn calculate_score(vulnerable: bool, contract: &Contract, tricks: u8) -> i32 {
+    let tricks_needed = contract.level as i32 + 6;
+    let tricks_taken = tricks as i32;
+    let overtricks = tricks_taken - tricks_needed;
+
+    if overtricks < 0 {
+        // Contract failed - calculate penalty
+        calculate_penalty(vulnerable, contract.doubled, -overtricks)
+    } else {
+        // Contract made - calculate score
+        calculate_made_score(vulnerable, contract, overtricks)
+    }
+}
+
+/// Calculate penalty for undertricks
+fn calculate_penalty(vulnerable: bool, doubled: Doubled, undertricks: i32) -> i32 {
+    match doubled {
+        Doubled::Undoubled => {
+            // 50 per undertrick non-vul, 100 per undertrick vul
+            let per_trick = if vulnerable { 100 } else { 50 };
+            -(undertricks * per_trick)
+        }
+        Doubled::Doubled => {
+            if vulnerable {
+                // First: 200, subsequent: 300 each
+                let first = 200;
+                let subsequent = (undertricks - 1) * 300;
+                -(first + subsequent)
+            } else {
+                // First: 100, second: 200, third: 200, subsequent: 300 each
+                let score = match undertricks {
+                    1 => 100,
+                    2 => 300,                 // 100 + 200
+                    3 => 500,                 // 100 + 200 + 200
+                    n => 500 + (n - 3) * 300, // First 3 = 500, then 300 each
+                };
+                -score
+            }
+        }
+        Doubled::Redoubled => {
+            // Redoubled penalties are double the doubled penalties
+            let doubled_penalty = calculate_penalty(vulnerable, Doubled::Doubled, undertricks);
+            doubled_penalty * 2
+        }
+    }
+}
+
+/// Calculate score for a made contract
+fn calculate_made_score(vulnerable: bool, contract: &Contract, overtricks: i32) -> i32 {
+    let mut score = 0;
+
+    // Trick score (below the line)
+    let trick_value = if contract.strain.is_minor() { 20 } else { 30 };
+    let first_nt_bonus = if contract.strain == Strain::NoTrump {
+        10
+    } else {
+        0
+    };
+
+    let trick_score = contract.level as i32 * trick_value + first_nt_bonus;
+
+    // Apply doubling to trick score
+    let trick_score = match contract.doubled {
+        Doubled::Undoubled => trick_score,
+        Doubled::Doubled => trick_score * 2,
+        Doubled::Redoubled => trick_score * 4,
+    };
+
+    score += trick_score;
+
+    // Game/partscore bonus
+    let is_game = trick_score >= 100;
+    if is_game {
+        score += if vulnerable { 500 } else { 300 };
+    } else {
+        score += 50; // Partscore bonus
+    }
+
+    // Slam bonuses
+    if contract.level == 6 {
+        // Small slam
+        score += if vulnerable { 750 } else { 500 };
+    } else if contract.level == 7 {
+        // Grand slam
+        score += if vulnerable { 1500 } else { 1000 };
+    }
+
+    // Overtrick bonus
+    let overtrick_value = match contract.doubled {
+        Doubled::Undoubled => trick_value,
+        Doubled::Doubled => {
+            if vulnerable {
+                200
+            } else {
+                100
+            }
+        }
+        Doubled::Redoubled => {
+            if vulnerable {
+                400
+            } else {
+                200
+            }
+        }
+    };
+    score += overtricks * overtrick_value;
+
+    // Insult bonus for making doubled/redoubled contract
+    match contract.doubled {
+        Doubled::Undoubled => {}
+        Doubled::Doubled => score += 50,
+        Doubled::Redoubled => score += 100,
+    }
+
+    score
+}
 
 /// Evaluation error type
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -592,6 +850,160 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             Ok(hand.cccc())
+        }
+
+        Function::Tricks => {
+            // tricks(position, denomination)
+            // position: north/south/east/west
+            // denomination: 0=C, 1=D, 2=H, 3=S, 4=NT (or use suit keywords)
+            if args.len() != 2 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "tricks".to_string(),
+                    expected: 2,
+                    got: args.len(),
+                });
+            }
+
+            let position = eval_position_arg(&args[0], ctx)?;
+
+            // Parse denomination - can be numeric (0-4) or suit keyword
+            let denomination = match &args[1] {
+                Expr::Suit(suit) => Denomination::from_suit(*suit),
+                Expr::Literal(n) => match n {
+                    0 => Denomination::Clubs,
+                    1 => Denomination::Diamonds,
+                    2 => Denomination::Hearts,
+                    3 => Denomination::Spades,
+                    4 => Denomination::NoTrump,
+                    _ => {
+                        return Err(EvalError::InvalidArgument(format!(
+                            "Invalid denomination: {} (must be 0=C, 1=D, 2=H, 3=S, 4=NT)",
+                            n
+                        )));
+                    }
+                },
+                _ => {
+                    // Try to evaluate as an expression
+                    let n = eval(&args[1], ctx)?;
+                    match n {
+                        0 => Denomination::Clubs,
+                        1 => Denomination::Diamonds,
+                        2 => Denomination::Hearts,
+                        3 => Denomination::Spades,
+                        4 => Denomination::NoTrump,
+                        _ => {
+                            return Err(EvalError::InvalidArgument(format!(
+                                "Invalid denomination: {} (must be 0=C, 1=D, 2=H, 3=S, 4=NT)",
+                                n
+                            )));
+                        }
+                    }
+                }
+            };
+
+            // Create solver and solve
+            let solver = DoubleDummySolver::new(ctx.deal.clone());
+            let tricks = solver.solve(denomination, position);
+
+            Ok(tricks as i32)
+        }
+
+        Function::Score => {
+            // score(vulnerability, contract, tricks)
+            // vulnerability: 0 = non-vul, 1 = vul
+            // contract: encoded as level * 10 + strain + doubled_flag * 100
+            //   strain: 0=C, 1=D, 2=H, 3=S, 4=NT
+            //   doubled_flag: 0=undoubled, 1=doubled, 2=redoubled
+            //   Examples: 3NT = 34, 4S = 43, 3NT doubled = 134, 4Sx = 143, 4Sxx = 243
+            // tricks: 0-13
+            if args.len() != 3 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "score".to_string(),
+                    expected: 3,
+                    got: args.len(),
+                });
+            }
+
+            let vul_arg = eval(&args[0], ctx)?;
+            let contract_code = eval(&args[1], ctx)?;
+            let tricks = eval(&args[2], ctx)?;
+
+            // Parse vulnerability
+            let vulnerable = vul_arg != 0;
+
+            // Parse contract code
+            let doubled_flag = contract_code / 100;
+            let remainder = contract_code % 100;
+            let level = remainder / 10;
+            let strain_num = remainder % 10;
+
+            // Validate level
+            if !(1..=7).contains(&level) {
+                return Err(EvalError::InvalidArgument(format!(
+                    "Invalid contract level: {} (must be 1-7)",
+                    level
+                )));
+            }
+
+            // Parse strain
+            let strain = match strain_num {
+                0 => Strain::Clubs,
+                1 => Strain::Diamonds,
+                2 => Strain::Hearts,
+                3 => Strain::Spades,
+                4 => Strain::NoTrump,
+                _ => {
+                    return Err(EvalError::InvalidArgument(format!(
+                        "Invalid strain: {} (must be 0=C, 1=D, 2=H, 3=S, 4=NT)",
+                        strain_num
+                    )));
+                }
+            };
+
+            // Parse doubled state
+            let doubled = match doubled_flag {
+                0 => Doubled::Undoubled,
+                1 => Doubled::Doubled,
+                2 => Doubled::Redoubled,
+                _ => {
+                    return Err(EvalError::InvalidArgument(format!(
+                        "Invalid doubled flag: {} (must be 0, 1, or 2)",
+                        doubled_flag
+                    )));
+                }
+            };
+
+            // Validate tricks
+            if !(0..=13).contains(&tricks) {
+                return Err(EvalError::InvalidArgument(format!(
+                    "Invalid tricks: {} (must be 0-13)",
+                    tricks
+                )));
+            }
+
+            let contract = Contract {
+                level: level as u8,
+                strain,
+                doubled,
+            };
+
+            Ok(calculate_score(vulnerable, &contract, tricks as u8))
+        }
+
+        Function::Imps => {
+            if args.len() != 1 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "imps".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+
+            // Evaluate the score difference expression
+            let score_diff = eval(&args[0], ctx)?;
+
+            // Convert to IMPs using the standard table
+            Ok(score_to_imps(score_diff))
         }
     }
 }
@@ -1747,5 +2159,315 @@ mod tests {
             0
         };
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_score_to_imps() {
+        // Test IMP conversion with standard table
+        assert_eq!(score_to_imps(0), 0); // 0 points = 0 IMPs
+        assert_eq!(score_to_imps(9), 0); // < 10 = 0 IMPs
+        assert_eq!(score_to_imps(10), 1); // 10-39 = 1 IMP
+        assert_eq!(score_to_imps(39), 1);
+        assert_eq!(score_to_imps(40), 2); // 40-79 = 2 IMPs
+        assert_eq!(score_to_imps(79), 2);
+        assert_eq!(score_to_imps(80), 3); // 80-119 = 3 IMPs
+        assert_eq!(score_to_imps(410), 10); // 410-489 = 10 IMPs
+        assert_eq!(score_to_imps(420), 10); // 410-489 = 10 IMPs
+        assert_eq!(score_to_imps(490), 11); // 490-589 = 11 IMPs
+        assert_eq!(score_to_imps(1500), 17); // 1490-1739 = 17 IMPs
+        assert_eq!(score_to_imps(4000), 24); // 3990+ = 24 IMPs
+
+        // Test negative values (preserve sign)
+        assert_eq!(score_to_imps(-10), -1);
+        assert_eq!(score_to_imps(-420), -10);
+        assert_eq!(score_to_imps(-1500), -17);
+    }
+
+    #[test]
+    fn test_eval_imps() {
+        use dealer_parser::parse;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // imps(420) should return 10 (410-489 = 10 IMPs)
+        let ast = parse("imps(420)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), 10);
+
+        // imps with negative value using subtraction (parser issue with negative literals in function args)
+        let ast = parse("imps(0 - 420)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), -10);
+
+        // imps with expression
+        let ast = parse("imps(400 + 20)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), 10);
+
+        // imps(0)
+        let ast = parse("imps(0)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_contract_parse() {
+        // Test contract parsing
+        let c = Contract::parse("3n").unwrap();
+        assert_eq!(c.level, 3);
+        assert_eq!(c.strain, Strain::NoTrump);
+        assert_eq!(c.doubled, Doubled::Undoubled);
+
+        let c = Contract::parse("4s").unwrap();
+        assert_eq!(c.level, 4);
+        assert_eq!(c.strain, Strain::Spades);
+        assert_eq!(c.doubled, Doubled::Undoubled);
+
+        let c = Contract::parse("7nt").unwrap();
+        assert_eq!(c.level, 7);
+        assert_eq!(c.strain, Strain::NoTrump);
+        assert_eq!(c.doubled, Doubled::Undoubled);
+
+        let c = Contract::parse("3hx").unwrap();
+        assert_eq!(c.level, 3);
+        assert_eq!(c.strain, Strain::Hearts);
+        assert_eq!(c.doubled, Doubled::Doubled);
+
+        let c = Contract::parse("4sxx").unwrap();
+        assert_eq!(c.level, 4);
+        assert_eq!(c.strain, Strain::Spades);
+        assert_eq!(c.doubled, Doubled::Redoubled);
+
+        // Invalid contracts
+        assert!(Contract::parse("8n").is_none()); // Level > 7
+        assert!(Contract::parse("0s").is_none()); // Level < 1
+        assert!(Contract::parse("3x").is_none()); // Invalid strain
+    }
+
+    #[test]
+    fn test_calculate_score_made_contracts() {
+        // 3NT making exactly = 400 non-vul (100 trick score + 300 game bonus)
+        let contract = Contract {
+            level: 3,
+            strain: Strain::NoTrump,
+            doubled: Doubled::Undoubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 9), 400);
+
+        // 3NT making exactly = 600 vul (100 trick score + 500 game bonus)
+        assert_eq!(calculate_score(true, &contract, 9), 600);
+
+        // 3NT making with 1 overtrick = 430 non-vul
+        assert_eq!(calculate_score(false, &contract, 10), 430);
+
+        // 4H making exactly = 420 non-vul (120 trick score + 300 game bonus)
+        let contract = Contract {
+            level: 4,
+            strain: Strain::Hearts,
+            doubled: Doubled::Undoubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 10), 420);
+
+        // 4S making exactly = 620 vul
+        let contract = Contract {
+            level: 4,
+            strain: Strain::Spades,
+            doubled: Doubled::Undoubled,
+        };
+        assert_eq!(calculate_score(true, &contract, 10), 620);
+
+        // 5C making exactly = 400 non-vul (100 trick score + 300 game bonus)
+        let contract = Contract {
+            level: 5,
+            strain: Strain::Clubs,
+            doubled: Doubled::Undoubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 11), 400);
+
+        // 6NT making = 990 non-vul (190 trick score + 300 game + 500 small slam)
+        let contract = Contract {
+            level: 6,
+            strain: Strain::NoTrump,
+            doubled: Doubled::Undoubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 12), 990);
+
+        // 6NT making = 1440 vul
+        assert_eq!(calculate_score(true, &contract, 12), 1440);
+
+        // 7NT making = 1520 non-vul
+        let contract = Contract {
+            level: 7,
+            strain: Strain::NoTrump,
+            doubled: Doubled::Undoubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 13), 1520);
+
+        // 7NT making = 2220 vul
+        assert_eq!(calculate_score(true, &contract, 13), 2220);
+
+        // 2C partscore = 90 non-vul (40 trick score + 50 partscore)
+        let contract = Contract {
+            level: 2,
+            strain: Strain::Clubs,
+            doubled: Doubled::Undoubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 8), 90);
+
+        // 1NT doubled making = 180 + 50 + 300 = 530 non-vul (redoubled game)
+        let contract = Contract {
+            level: 1,
+            strain: Strain::NoTrump,
+            doubled: Doubled::Doubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 7), 180);
+
+        // 3NT doubled making = 750 non-vul (200 trick score + 300 game + 200 insult)
+        // Wait, 3NT = 100, doubled = 200 which is game, so 200 + 300 + 50 = 550
+        let contract = Contract {
+            level: 3,
+            strain: Strain::NoTrump,
+            doubled: Doubled::Doubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 9), 550);
+    }
+
+    #[test]
+    fn test_calculate_score_failed_contracts() {
+        // 3NT down 1 = -50 non-vul
+        let contract = Contract {
+            level: 3,
+            strain: Strain::NoTrump,
+            doubled: Doubled::Undoubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 8), -50);
+
+        // 3NT down 1 = -100 vul
+        assert_eq!(calculate_score(true, &contract, 8), -100);
+
+        // 3NT down 3 = -150 non-vul
+        assert_eq!(calculate_score(false, &contract, 6), -150);
+
+        // 4H doubled down 1 = -100 non-vul
+        let contract = Contract {
+            level: 4,
+            strain: Strain::Hearts,
+            doubled: Doubled::Doubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 9), -100);
+
+        // 4H doubled down 1 = -200 vul
+        assert_eq!(calculate_score(true, &contract, 9), -200);
+
+        // 4H doubled down 2 = -300 non-vul (100 + 200)
+        assert_eq!(calculate_score(false, &contract, 8), -300);
+
+        // 4H doubled down 3 = -500 non-vul (100 + 200 + 200)
+        assert_eq!(calculate_score(false, &contract, 7), -500);
+
+        // 4H doubled down 4 = -800 non-vul (100 + 200 + 200 + 300)
+        assert_eq!(calculate_score(false, &contract, 6), -800);
+
+        // 4H doubled down 2 = -500 vul (200 + 300)
+        assert_eq!(calculate_score(true, &contract, 8), -500);
+
+        // 4H redoubled down 1 = -200 non-vul
+        let contract = Contract {
+            level: 4,
+            strain: Strain::Hearts,
+            doubled: Doubled::Redoubled,
+        };
+        assert_eq!(calculate_score(false, &contract, 9), -200);
+
+        // 4H redoubled down 1 = -400 vul
+        assert_eq!(calculate_score(true, &contract, 9), -400);
+    }
+
+    #[test]
+    fn test_eval_score() {
+        use dealer_parser::parse;
+
+        let mut gen = DealGenerator::new(1);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // score(0, 34, 9) = 3NT non-vul making exactly = 400
+        // Contract code: 34 = level 3, strain 4 (NT)
+        let ast = parse("score(0, 34, 9)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), 400);
+
+        // score(1, 34, 9) = 3NT vul making exactly = 600
+        let ast = parse("score(1, 34, 9)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), 600);
+
+        // score(0, 43, 10) = 4S non-vul making exactly = 420
+        // Contract code: 43 = level 4, strain 3 (Spades)
+        let ast = parse("score(0, 43, 10)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), 420);
+
+        // score(0, 34, 8) = 3NT down 1 = -50
+        let ast = parse("score(0, 34, 8)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), -50);
+
+        // score(0, 143, 9) = 4S doubled down 1 = -100
+        // Contract code: 143 = doubled (100) + level 4, strain 3 (Spades)
+        let ast = parse("score(0, 143, 9)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), -100);
+    }
+
+    #[test]
+    fn test_eval_tricks() {
+        use dealer_parser::parse;
+
+        let mut gen = DealGenerator::new(42);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Test tricks with numeric denomination
+        // tricks(north, 4) = tricks in NT for North as declarer
+        let ast = parse("tricks(north, 4)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        // Result should be 0-13
+        assert!(
+            (0..=13).contains(&result),
+            "tricks should be 0-13, got {}",
+            result
+        );
+
+        // Test tricks with suit keyword
+        // tricks(south, spades) = tricks in spades for South as declarer
+        let ast = parse("tricks(south, spades)").unwrap();
+        let result = eval(&ast, &ctx).unwrap();
+        assert!(
+            (0..=13).contains(&result),
+            "tricks should be 0-13, got {}",
+            result
+        );
+
+        // Test that different positions can have different trick counts
+        // (This is just a sanity check - the actual values depend on the deal)
+        let ast_n = parse("tricks(north, 4)").unwrap();
+        let ast_s = parse("tricks(south, 4)").unwrap();
+        let _tricks_n = eval(&ast_n, &ctx).unwrap();
+        let _tricks_s = eval(&ast_s, &ctx).unwrap();
+        // Both should be valid (0-13) - we already checked above
+    }
+
+    #[test]
+    fn test_tricks_with_score() {
+        use dealer_parser::parse;
+
+        let mut gen = DealGenerator::new(42);
+        let deal = gen.generate();
+        let ctx = EvalContext::new(&deal);
+
+        // Use tricks() result in score() calculation
+        // score(0, 34, tricks(north, 4)) = score for 3NT non-vul based on DD tricks
+        let ast = parse("score(0, 34, tricks(north, 4))").unwrap();
+        let score = eval(&ast, &ctx).unwrap();
+
+        // The score should be:
+        // - Positive if making (tricks >= 9): 400+ for 3NT
+        // - Negative if failing (tricks < 9): -50 per undertrick
+        // We can't predict exact value, but it should be a valid bridge score
+        eprintln!("3NT score with DD tricks: {}", score);
     }
 }

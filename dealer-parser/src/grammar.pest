@@ -112,6 +112,7 @@ function_name = @{
     | "top2" | "top3" | "top4" | "top5" | "c13"
     | "pt0" | "pt1" | "pt2" | "pt3" | "pt4" | "pt5" | "pt6" | "pt7" | "pt8" | "pt9"
     | "quality" | "cccc"
+    | "tricks" | "score" | "imps"  // Double-dummy and scoring functions
     | "hearts" | "spades" | "diamonds" | "clubs"  // Must be after suit check in primary
 }
 

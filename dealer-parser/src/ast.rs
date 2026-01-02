@@ -276,6 +276,14 @@ pub enum Function {
     Quality,
     /// CCCC evaluation algorithm (Bridge World Oct 1982)
     Cccc,
+
+    // Double-dummy and scoring functions
+    /// Double-dummy trick count
+    Tricks,
+    /// Contract score calculation
+    Score,
+    /// Convert score difference to IMPs
+    Imps,
 }
 
 impl Function {
@@ -303,6 +311,9 @@ impl Function {
             "c13" | "pt9" => Some(Function::C13),
             "quality" => Some(Function::Quality),
             "cccc" => Some(Function::Cccc),
+            "tricks" => Some(Function::Tricks),
+            "score" => Some(Function::Score),
+            "imps" => Some(Function::Imps),
             _ => None,
         }
     }

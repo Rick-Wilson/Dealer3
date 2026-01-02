@@ -7,3 +7,4 @@ license = "Unlicense"
 [dependencies]
 dealer-core = { path = "../dealer-core" }
 dealer-parser = { path = "../dealer-parser" }
+dealer-dds = { path = "../dealer-dds" }

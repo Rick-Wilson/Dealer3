@@ -1,6 +1,6 @@
 # Dealer Implementation Status
 
-**Last Updated:** 2025-12-31
+**Last Updated:** 2026-01-02
 
 ## Overview
 
@@ -9,7 +9,10 @@ This document tracks the implementation status of the dealer constraint language
 ### Quick Summary
 
 **✅ Core Features Working:**
-- 22 filter functions (hcp, suits, controls, losers, shape, hascard, tens, jacks, queens, kings, aces, top2-5, c13, quality, cccc)
+- 25 filter functions (hcp, suits, controls, losers, shape, hascard, tens, jacks, queens, kings, aces, top2-5, c13, quality, cccc, **tricks, score, imps**)
+- **Double-dummy analysis** via built-in alpha-beta solver (~1.4 deals/second)
+- **Contract scoring** with full support for vulnerability, doubles, and slams
+- **IMP conversion** using standard IMP table
 - All arithmetic, comparison, and logical operators (including ternary `?:` and logical NOT `!`/`not`)
 - Shape pattern matching (exact, wildcard, any distribution)
 - Card and suit literals
@@ -23,13 +26,11 @@ This document tracks the implementation status of the dealer constraint language
 - **Print formats (printall, printew, printpbn, printcompact, printoneline)**
 - **Duration logging (performance tracking)**
 
-**❌ Not Yet Implemented:**
-- Advanced functions (tricks, score, imps)
-
-**Test Status:** 118 tests passing across all crates
+**Test Status:** 130+ tests passing across all crates
 - dealer-core: 20 tests (including 7 predeal tests)
 - dealer-core shuffle: 7 tests
-- dealer-eval: 49 tests
+- dealer-dds: 6 tests
+- dealer-eval: 57 tests (including tricks, score, imps)
 - dealer-parser: 23 tests
 - dealer-pbn: 16 tests
 - gnurandom: 3 tests
@@ -183,13 +184,53 @@ Comprehensive hand evaluation combining honor strength, suit quality, and shape.
   - `cccc(north) >= 1500` - Strong opening hand (15.00+ points)
   - `cccc(south) + cccc(north) >= 2400` - Game-level partnership (24.00+ combined points)
 
-### ❌ **Not Yet Defined**
+### ✅ **Double-Dummy and Scoring Functions**
 
-#### Double-Dummy Analysis Functions (Requires External Library)
-These functions require a double-dummy solver (DDS library) and are deferred:
-- `tricks(position, contract)` - Double-dummy trick count
-- `score(contract, result)` - Contract scoring (may depend on tricks)
-- `imps(score_diff)` - Convert score to IMPs
+| Function | Description | Status |
+|----------|-------------|--------|
+| `tricks(position, denomination)` | Double-dummy trick count | ✅ Working |
+| `score(vulnerability, contract, tricks)` | Contract score calculation | ✅ Working |
+| `imps(score_diff)` | Convert score difference to IMPs | ✅ Working |
+
+**Tricks Function - `tricks(position, denomination)`:**
+Returns the double-dummy trick count for a given declarer and denomination.
+- `position`: north, south, east, west
+- `denomination`: Use suit keyword (spades, hearts, diamonds, clubs) or numeric (0=C, 1=D, 2=H, 3=S, 4=NT)
+- Returns: 0-13 (number of tricks)
+- Examples:
+  - `tricks(north, spades)` - Tricks for North declaring in spades
+  - `tricks(south, 4)` - Tricks for South declaring in notrump (4=NT)
+- **Note**: This function uses the built-in alpha-beta solver (~1.4 deals/second)
+
+**Score Function - `score(vulnerability, contract, tricks)`:**
+Calculates the contract score based on vulnerability, contract, and tricks taken.
+- `vulnerability`: 0 = non-vulnerable, 1 = vulnerable
+- `contract`: Encoded as `doubled_flag * 100 + level * 10 + strain`
+  - `strain`: 0=C, 1=D, 2=H, 3=S, 4=NT
+  - `doubled_flag`: 0=undoubled, 1=doubled, 2=redoubled
+  - Examples: 3NT=34, 4S=43, 3NT doubled=134, 4Sx=143, 4Sxx=243
+- `tricks`: 0-13 (tricks taken by declarer)
+- Returns: Positive score if made, negative if failed
+- Examples:
+  - `score(0, 34, 9)` - 3NT non-vul making exactly = 400
+  - `score(1, 43, 10)` - 4S vul making exactly = 620
+  - `score(0, 34, 8)` - 3NT non-vul down 1 = -50
+  - `score(0, 143, 9)` - 4S doubled non-vul down 1 = -100
+
+**IMPs Function - `imps(score_diff)`:**
+Converts a score difference to IMPs using the standard IMP table.
+- `score_diff`: Any integer (positive or negative)
+- Returns: IMP value (preserves sign)
+- Examples:
+  - `imps(420)` - 10 IMPs (410-489 range)
+  - `imps(0 - 420)` - -10 IMPs
+  - `imps(score(0, 34, 9) - score(0, 34, 8))` - Compare 3NT making vs down 1
+
+**Combined Usage Example:**
+```
+# Find deals where 3NT scores better than 4S
+score(0, 34, tricks(north, 4)) > score(0, 43, tricks(north, spades))
+```
 
 ---
 
