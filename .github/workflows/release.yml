@@ -5,36 +5,16 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Get version from tag
-        id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
   build-release:
     name: Build Release
-    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -44,14 +24,22 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact_name: dealer
             asset_name: dealer-linux-x86_64
+            strip: true
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: dealer.exe
             asset_name: dealer-windows-x86_64.exe
+            strip: false
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: dealer
             asset_name: dealer-macos-x86_64
+            strip: false
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: dealer
+            asset_name: dealer-macos-aarch64
+            strip: false
 
     steps:
       - name: Checkout code
@@ -62,84 +50,57 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-git-
-
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-target-
+          key: ${{ matrix.target }}
 
       - name: Build release binary
         run: cargo build --release --bin dealer --target ${{ matrix.target }}
 
-      - name: Strip binary (Linux and macOS)
-        if: matrix.os != 'windows-latest'
+      - name: Strip binary (Linux only)
+        if: matrix.strip
         run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
       - name: Create distribution package
+        shell: bash
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} dist/${{ matrix.asset_name }}
           cp LICENSE dist/
-          cp README.md dist/
+          if [ -f README.md ]; then
+            cp README.md dist/
+          fi
 
       - name: Create tarball (Linux and macOS)
         if: matrix.os != 'windows-latest'
+        shell: bash
         run: |
           cd dist
-          tar -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }} LICENSE README.md
+          if [ -f README.md ]; then
+            tar -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }} LICENSE README.md
+          else
+            tar -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }} LICENSE
+          fi
 
       - name: Create zip (Windows)
         if: matrix.os == 'windows-latest'
+        shell: bash
         run: |
           cd dist
-          7z a ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }} LICENSE README.md
+          if [ -f README.md ]; then
+            7z a ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }} LICENSE README.md
+          else
+            7z a ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }} LICENSE
+          fi
 
-      - name: Upload Release Asset (tarball)
-        if: matrix.os != 'windows-latest'
-        uses: actions/upload-release-asset@v1
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/${{ matrix.asset_name }}.tar.gz
+            dist/${{ matrix.asset_name }}.zip
+            dist/${{ matrix.asset_name }}
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/${{ matrix.asset_name }}.tar.gz
-          asset_name: ${{ matrix.asset_name }}.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload Release Asset (zip)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/${{ matrix.asset_name }}.zip
-          asset_name: ${{ matrix.asset_name }}.zip
-          asset_content_type: application/zip
-
-      - name: Upload standalone binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/${{ matrix.asset_name }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
