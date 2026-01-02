@@ -1,0 +1,8 @@
+[package]
+name = "dealer-dds"
+version = "0.1.0"
+edition = "2021"
+license = "Unlicense"
+
+[dependencies]
+dealer-core = { path = "../dealer-core" }
