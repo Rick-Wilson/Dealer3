@@ -139,6 +139,12 @@ Priority features for next implementation:
    - `cargo fmt --all` - Format all code
    - `cargo clippy --workspace --all-targets --all-features -- -D warnings` - Fix all clippy warnings
    - `cargo test --workspace` - Ensure all tests pass
+7. **Code quality standards**:
+   - No `unwrap()` or `expect()` outside test code - use proper error handling
+   - No `println!()` in library code (CLI binaries are OK)
+   - All public functions must have doc comments (`///`)
+   - All `unsafe` blocks must have a comment explaining why they're safe
+   - No `TODO` comments without issue numbers (except in WIP branches)
 
 ## Known Issues
 
