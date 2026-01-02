@@ -206,16 +206,6 @@ impl From<VulnerabilityArg> for Vulnerability {
     }
 }
 
-/// Convert VulnerabilityType to Vulnerability
-fn vulnerability_type_to_vulnerability(vt: VulnerabilityType) -> Vulnerability {
-    match vt {
-        VulnerabilityType::None => Vulnerability::None,
-        VulnerabilityType::NS => Vulnerability::NS,
-        VulnerabilityType::EW => Vulnerability::EW,
-        VulnerabilityType::All => Vulnerability::All,
-    }
-}
-
 /// Parse predeal card string (format: S8743,HA9,D642,CQT64)
 /// Returns a vector of cards
 fn parse_predeal_cards(card_str: &str) -> Result<Vec<dealer_core::Card>, String> {
