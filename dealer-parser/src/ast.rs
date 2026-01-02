@@ -85,7 +85,7 @@ pub enum VulnerabilityType {
 }
 
 impl VulnerabilityType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "none" => Some(VulnerabilityType::None),
             "ns" => Some(VulnerabilityType::NS),
@@ -107,7 +107,7 @@ pub enum ActionType {
 }
 
 impl ActionType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "printall" => Some(ActionType::PrintAll),
             "printew" => Some(ActionType::PrintEW),
@@ -280,7 +280,7 @@ pub enum Function {
 
 impl Function {
     /// Parse function name from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "hcp" => Some(Function::Hcp),
             "spades" => Some(Function::Spades),
@@ -369,10 +369,10 @@ mod tests {
     }
 
     #[test]
-    fn test_function_from_str() {
-        assert_eq!(Function::from_str("hcp"), Some(Function::Hcp));
-        assert_eq!(Function::from_str("hearts"), Some(Function::Hearts));
-        assert_eq!(Function::from_str("HCP"), Some(Function::Hcp));
-        assert_eq!(Function::from_str("invalid"), None);
+    fn test_function_parse() {
+        assert_eq!(Function::parse("hcp"), Some(Function::Hcp));
+        assert_eq!(Function::parse("hearts"), Some(Function::Hearts));
+        assert_eq!(Function::parse("HCP"), Some(Function::Hcp));
+        assert_eq!(Function::parse("invalid"), None);
     }
 }

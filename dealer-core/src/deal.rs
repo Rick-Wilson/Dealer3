@@ -124,8 +124,8 @@ impl DealGenerator {
         // Initialize deck in suit-rank order (matches newpack in dealer.c)
         // Clubs 2-A, Diamonds 2-A, Hearts 2-A, Spades 2-A
         let mut deck = [0u8; 52];
-        for i in 0..52 {
-            deck[i] = i as u8;
+        for (i, card) in deck.iter_mut().enumerate() {
+            *card = i as u8;
         }
 
         // Initialize stacked_pack to None (no predeal)
@@ -261,7 +261,7 @@ impl DealGenerator {
                     deck_idx += 1;
 
                     // Check if this card is predealt somewhere
-                    if !self.stacked_pack.iter().any(|&p| p == Some(candidate)) {
+                    if !self.stacked_pack.contains(&Some(candidate)) {
                         break candidate;
                     }
                     // This card is predealt, skip it and continue

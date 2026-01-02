@@ -389,8 +389,8 @@ fn main() {
     // Open CSV file if requested
     let mut csv_writer: Option<BufWriter<std::fs::File>> = None;
     if let Some(csv_arg) = &args.csv_file {
-        let (filename, write_mode) = if csv_arg.starts_with("w:") {
-            (&csv_arg[2..], true)
+        let (filename, write_mode) = if let Some(stripped) = csv_arg.strip_prefix("w:") {
+            (stripped, true)
         } else {
             (csv_arg.as_str(), false)
         };
@@ -446,6 +446,7 @@ fn main() {
 
     // Track frequency statements: (label, expression, histogram, range)
     use std::collections::HashMap;
+    #[allow(clippy::type_complexity)]
     let mut frequencies: Vec<(
         Option<String>,
         Expr,
@@ -752,7 +753,7 @@ fn main() {
 
                         // Write line with space before first item, commas between items
                         if let Some(writer) = csv_writer.as_mut() {
-                            write!(writer, " {}\n", line_parts.join(",")).unwrap_or_else(|e| {
+                            writeln!(writer, " {}", line_parts.join(",")).unwrap_or_else(|e| {
                                 eprintln!("CSV write error: {}", e);
                                 std::process::exit(1);
                             });

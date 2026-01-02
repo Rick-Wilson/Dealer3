@@ -167,10 +167,11 @@ impl Card {
     pub fn hcp(&self) -> u8 {
         self.rank.hcp()
     }
+}
 
-    /// Format as a string (e.g., "S:A", "H:K", "C:2")
-    pub fn to_string(&self) -> String {
-        format!("{}:{}", self.suit.to_char(), self.rank.to_char())
+impl std::fmt::Display for Card {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.suit.to_char(), self.rank.to_char())
     }
 }
 

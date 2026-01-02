@@ -7,7 +7,7 @@ fn main() {
     println!("RNG values for seed 1:");
     for i in 0..60 {
         let val = rng.next_u32();
-        if i < 5 || i >= 50 {
+        if !(5..50).contains(&i) {
             println!("  [{}] = 0x{:08x} ({})", i, val, val);
         } else if i == 5 {
             println!("  ... (values 5-49) ...");

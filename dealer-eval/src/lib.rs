@@ -1604,7 +1604,7 @@ mod tests {
             if result != 0 {
                 let north = deal.hand(Position::North);
                 let hcp = north.hcp();
-                assert!(hcp >= 15 && hcp <= 17, "HCP should be 15-17, got {}", hcp);
+                assert!((15..=17).contains(&hcp), "HCP should be 15-17, got {}", hcp);
 
                 let lengths = north.suit_lengths();
                 let is_balanced = north.is_balanced();

@@ -5,7 +5,7 @@ use dealer_core::{Card, Deal, Hand, Position, Rank, Suit};
 /// Format: "n AKQT3.J6.KJ42.95 e 652.AK42.AQ87.T4 s J74.QT95.T.AK863 w 98.873.9653.QJ72"
 /// Each hand is: position_char space cards_in_suit_format
 pub fn parse_oneline(input: &str) -> Result<Deal, ParseError> {
-    let parts: Vec<&str> = input.trim().split_whitespace().collect();
+    let parts: Vec<&str> = input.split_whitespace().collect();
 
     if parts.len() != 8 {
         return Err(ParseError {

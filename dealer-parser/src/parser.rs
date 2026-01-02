@@ -140,7 +140,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                                     let max =
                                         parts.next().unwrap().as_str().parse::<i32>().map_err(
                                             |_| ParseError {
-                                                message: format!("Invalid frequency range max"),
+                                                message: "Invalid frequency range max".to_string(),
                                             },
                                         )?;
                                     Some((min, max))
@@ -151,7 +151,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                                 frequencies.push(FrequencySpec { label, expr, range });
                             }
                             Rule::action_type => {
-                                let action_type = ActionType::from_str(comp_inner.as_str())
+                                let action_type = ActionType::parse(comp_inner.as_str())
                                     .ok_or_else(|| ParseError {
                                         message: format!(
                                             "Invalid action type: {}",
@@ -201,7 +201,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         }
         Rule::vulnerable_stmt => {
             let vuln_str = inner.into_inner().next().unwrap().as_str();
-            let vuln = VulnerabilityType::from_str(vuln_str).ok_or_else(|| ParseError {
+            let vuln = VulnerabilityType::parse(vuln_str).ok_or_else(|| ParseError {
                 message: format!("Invalid vulnerability: {}", vuln_str),
             })?;
             Ok(Statement::Vulnerable(vuln))
@@ -518,7 +518,7 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                 args.push(build_ast(arg_pair)?);
             }
 
-            let func = Function::from_str(func_name).ok_or_else(|| ParseError {
+            let func = Function::parse(func_name).ok_or_else(|| ParseError {
                 message: format!("Unknown function: {}", func_name),
             })?;
 

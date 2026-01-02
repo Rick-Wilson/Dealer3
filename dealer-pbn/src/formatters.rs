@@ -181,7 +181,7 @@ pub fn format_printpbn(
     result.push_str("[South \"-\"]\n");
 
     // Dealer - rotates by board number if not specified
-    let dealer_pos = dealer.unwrap_or_else(|| match board_number % 4 {
+    let dealer_pos = dealer.unwrap_or(match board_number % 4 {
         0 => Position::North,
         1 => Position::East,
         2 => Position::South,
@@ -341,6 +341,27 @@ pub fn format_printcompact(deal: &Deal) -> String {
     result
 }
 
+/// Format a single hand in PBN format (without position prefix)
+/// Returns a string like "AKQ.JT9.876.5432"
+pub fn format_hand_pbn(hand: &dealer_core::Hand) -> String {
+    let mut result = String::new();
+
+    for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
+        let mut cards: Vec<_> = hand.cards_in_suit(suit);
+        cards.sort_by(|a, b| b.rank.cmp(&a.rank)); // High to low
+
+        for card in cards {
+            result.push(rank_char(card.rank));
+        }
+
+        if suit != Suit::Clubs {
+            result.push('.');
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,7 +478,7 @@ mod tests {
         // Should have 4 lines (one per position)
         assert_eq!(output.lines().count(), 4);
         // Each line should start with position char
-        assert!(output.lines().nth(0).unwrap().starts_with('n'));
+        assert!(output.lines().next().unwrap().starts_with('n'));
         assert!(output.lines().nth(1).unwrap().starts_with('e'));
         assert!(output.lines().nth(2).unwrap().starts_with('s'));
         assert!(output.lines().nth(3).unwrap().starts_with('w'));
@@ -466,25 +487,4 @@ mod tests {
             assert_eq!(line.matches('.').count(), 3);
         }
     }
-}
-
-/// Format a single hand in PBN format (without position prefix)
-/// Returns a string like "AKQ.JT9.876.5432"
-pub fn format_hand_pbn(hand: &dealer_core::Hand) -> String {
-    let mut result = String::new();
-
-    for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
-        let mut cards: Vec<_> = hand.cards_in_suit(suit);
-        cards.sort_by(|a, b| b.rank.cmp(&a.rank)); // High to low
-
-        for card in cards {
-            result.push(rank_char(card.rank));
-        }
-
-        if suit != Suit::Clubs {
-            result.push('.');
-        }
-    }
-
-    result
 }

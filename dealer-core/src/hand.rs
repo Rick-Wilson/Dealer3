@@ -220,8 +220,8 @@ impl Hand {
         } else {
             // 3+ cards: Count top 3 honors
             let mut losers = 3;
-            for i in 0..3.min(len) {
-                if matches!(cards[i].rank, Rank::Ace | Rank::King | Rank::Queen) {
+            for card in cards.iter().take(3.min(len)) {
+                if matches!(card.rank, Rank::Ace | Rank::King | Rank::Queen) {
                     losers -= 1;
                 }
             }
@@ -477,10 +477,8 @@ impl Hand {
                     quality += suit_factor / 2;
                 }
             }
-            if has_nine {
-                if (higher_honors == 2) || has_ten || has_eight {
-                    quality += suit_factor / 2;
-                }
+            if has_nine && ((higher_honors == 2) || has_ten || has_eight) {
+                quality += suit_factor / 2;
             }
         }
 
