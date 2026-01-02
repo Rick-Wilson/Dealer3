@@ -124,7 +124,12 @@ fn position_char(pos: Position) -> char {
 
 /// Rotate position clockwise by n steps
 fn rotate_position(start: Position, steps: usize) -> Position {
-    let positions = [Position::North, Position::East, Position::South, Position::West];
+    let positions = [
+        Position::North,
+        Position::East,
+        Position::South,
+        Position::West,
+    ];
     let start_idx = positions.iter().position(|&p| p == start).unwrap();
     let new_idx = (start_idx + steps) % 4;
     positions[new_idx]
@@ -136,7 +141,10 @@ fn parse_hand(s: &str) -> Result<Hand, ParseError> {
     let suits_str: Vec<&str> = s.split('.').collect();
     if suits_str.len() != 4 {
         return Err(ParseError {
-            message: format!("Expected 4 suits separated by dots, got {}", suits_str.len()),
+            message: format!(
+                "Expected 4 suits separated by dots, got {}",
+                suits_str.len()
+            ),
         });
     }
 
@@ -230,7 +238,8 @@ mod tests {
 
     #[test]
     fn test_parse_deal_tag() {
-        let input = r#"[Deal "N:KQ4.QJ982..AKQ43 J653.A73.985.J97 9.K54.KQT732.652 AT872.T6.AJ64.T8"]"#;
+        let input =
+            r#"[Deal "N:KQ4.QJ982..AKQ43 J653.A73.985.J97 9.K54.KQT732.652 AT872.T6.AJ64.T8"]"#;
 
         let pbn_deal = parse_deal_tag(input).unwrap();
 
@@ -247,7 +256,8 @@ mod tests {
 
     #[test]
     fn test_format_deal_tag() {
-        let input = r#"[Deal "N:KQ4.QJ982..AKQ43 J653.A73.985.J97 9.K54.KQT732.652 AT872.T6.AJ64.T8"]"#;
+        let input =
+            r#"[Deal "N:KQ4.QJ982..AKQ43 J653.A73.985.J97 9.K54.KQT732.652 AT872.T6.AJ64.T8"]"#;
 
         let pbn_deal = parse_deal_tag(input).unwrap();
         let output = format_deal_tag(&pbn_deal.deal, pbn_deal.first_seat);
@@ -260,7 +270,8 @@ mod tests {
 
     #[test]
     fn test_round_trip() {
-        let input = r#"[Deal "S:AKQ.JT9.876.5432 2.AKQ.JT9.AKQ876 JT9.876.5432.JT9 87654.5432.AKQ."]"#;
+        let input =
+            r#"[Deal "S:AKQ.JT9.876.5432 2.AKQ.JT9.AKQ876 JT9.876.5432.JT9 87654.5432.AKQ."]"#;
 
         let pbn_deal = parse_deal_tag(input).unwrap();
         let output = format_deal_tag(&pbn_deal.deal, pbn_deal.first_seat);
@@ -274,7 +285,8 @@ mod tests {
     fn test_parse_void_suit() {
         // West has void clubs (need 13 cards total, with 0 in clubs)
         // N: 3+5+0+5=13, E: 4+3+3+3=13, S: 2+3+6+2=13, W: 5+3+5+0=13, Total: 52
-        let input = r#"[Deal "N:KQ4.QJ982..AKQ43 J653.A74.985.J97 98.K32.KQT732.65 AT872.T65.AJ642."]"#;
+        let input =
+            r#"[Deal "N:KQ4.QJ982..AKQ43 J653.A74.985.J97 98.K32.KQT732.65 AT872.T65.AJ642."]"#;
 
         let pbn_deal = parse_deal_tag(input).unwrap();
         let west = pbn_deal.deal.hand(Position::West);
@@ -296,9 +308,18 @@ mod tests {
             let pbn_deal = parse_deal_tag(deal_str).unwrap();
 
             // Verify all hands have 13 cards
-            for pos in [Position::North, Position::East, Position::South, Position::West] {
-                assert_eq!(pbn_deal.deal.hand(pos).len(), 13,
-                    "Position {:?} should have 13 cards", pos);
+            for pos in [
+                Position::North,
+                Position::East,
+                Position::South,
+                Position::West,
+            ] {
+                assert_eq!(
+                    pbn_deal.deal.hand(pos).len(),
+                    13,
+                    "Position {:?} should have 13 cards",
+                    pos
+                );
             }
 
             // Verify round-trip: format and re-parse should produce same deal

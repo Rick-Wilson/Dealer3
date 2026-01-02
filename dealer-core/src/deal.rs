@@ -110,8 +110,8 @@ impl Default for Deal {
 /// Generator for creating random bridge deals
 pub struct DealGenerator {
     rng: GnuRandom,
-    zero52: [u8; 65536], // Lookup table to avoid modulo operations
-    deck: [u8; 52],      // Persistent deck that gets reshuffled each time
+    zero52: [u8; 65536],            // Lookup table to avoid modulo operations
+    deck: [u8; 52],                 // Persistent deck that gets reshuffled each time
     stacked_pack: [Option<u8>; 52], // Predealt cards (matches dealer.c's stacked_pack)
 }
 
@@ -366,25 +366,27 @@ mod tests {
     #[test]
     fn test_predeal_basic() {
         let mut gen = DealGenerator::new(42);
-        
+
         // Predeal AS, KS, QS to North
         let cards = vec![
             Card::new(Suit::Spades, Rank::Ace),
             Card::new(Suit::Spades, Rank::King),
             Card::new(Suit::Spades, Rank::Queen),
         ];
-        
+
         gen.predeal(Position::North, &cards).unwrap();
-        
+
         // Generate a deal
         let deal = gen.generate();
-        
+
         // Verify North has the predealt cards
         let north = deal.hand(Position::North);
         assert!(north.cards().contains(&Card::new(Suit::Spades, Rank::Ace)));
         assert!(north.cards().contains(&Card::new(Suit::Spades, Rank::King)));
-        assert!(north.cards().contains(&Card::new(Suit::Spades, Rank::Queen)));
-        
+        assert!(north
+            .cards()
+            .contains(&Card::new(Suit::Spades, Rank::Queen)));
+
         // Verify North has exactly 13 cards
         assert_eq!(north.len(), 13);
     }
@@ -396,32 +398,40 @@ mod tests {
             Card::new(Suit::Spades, Rank::Ace),
             Card::new(Suit::Hearts, Rank::King),
         ];
-        
+
         let mut gen1 = DealGenerator::new(123);
         gen1.predeal(Position::North, &cards).unwrap();
         let deal1 = gen1.generate();
-        
+
         let mut gen2 = DealGenerator::new(123);
         gen2.predeal(Position::North, &cards).unwrap();
         let deal2 = gen2.generate();
-        
+
         assert_eq!(deal1, deal2);
     }
 
     #[test]
     fn test_predeal_multiple_positions() {
         let mut gen = DealGenerator::new(42);
-        
+
         // Predeal to North
-        gen.predeal(Position::North, &[Card::new(Suit::Spades, Rank::Ace)]).unwrap();
-        
+        gen.predeal(Position::North, &[Card::new(Suit::Spades, Rank::Ace)])
+            .unwrap();
+
         // Predeal to South
-        gen.predeal(Position::South, &[Card::new(Suit::Hearts, Rank::Ace)]).unwrap();
-        
+        gen.predeal(Position::South, &[Card::new(Suit::Hearts, Rank::Ace)])
+            .unwrap();
+
         let deal = gen.generate();
-        
-        assert!(deal.hand(Position::North).cards().contains(&Card::new(Suit::Spades, Rank::Ace)));
-        assert!(deal.hand(Position::South).cards().contains(&Card::new(Suit::Hearts, Rank::Ace)));
+
+        assert!(deal
+            .hand(Position::North)
+            .cards()
+            .contains(&Card::new(Suit::Spades, Rank::Ace)));
+        assert!(deal
+            .hand(Position::South)
+            .cards()
+            .contains(&Card::new(Suit::Hearts, Rank::Ace)));
     }
 
     #[test]
@@ -432,12 +442,12 @@ mod tests {
         let all_spades: Vec<Card> = (0..13)
             .map(|i| Card::from_index(39 + i).unwrap()) // Spades are indices 39-51
             .collect();
-        
+
         gen.predeal(Position::North, &all_spades).unwrap();
-        
+
         let deal = gen.generate();
         let north = deal.hand(Position::North);
-        
+
         // Verify North has all 13 spades
         assert_eq!(north.suit_length(Suit::Spades), 13);
         assert_eq!(north.len(), 13);
@@ -446,10 +456,10 @@ mod tests {
     #[test]
     fn test_predeal_duplicate_card_error() {
         let mut gen = DealGenerator::new(42);
-        
+
         let ace_spades = Card::new(Suit::Spades, Rank::Ace);
         gen.predeal(Position::North, &[ace_spades]).unwrap();
-        
+
         // Try to predeal same card again
         let result = gen.predeal(Position::South, &[ace_spades]);
         assert!(result.is_err());
@@ -459,12 +469,10 @@ mod tests {
     #[test]
     fn test_predeal_too_many_cards_error() {
         let mut gen = DealGenerator::new(42);
-        
+
         // Try to predeal 14 cards to one position
-        let cards: Vec<Card> = (0..14)
-            .map(|i| Card::from_index(i).unwrap())
-            .collect();
-        
+        let cards: Vec<Card> = (0..14).map(|i| Card::from_index(i).unwrap()).collect();
+
         let result = gen.predeal(Position::North, &cards);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("More than 13 cards"));
@@ -474,10 +482,14 @@ mod tests {
     fn test_predeal_no_duplicate_cards_in_deal() {
         let mut gen = DealGenerator::new(42);
 
-        gen.predeal(Position::North, &[
-            Card::new(Suit::Spades, Rank::Ace),
-            Card::new(Suit::Hearts, Rank::Ace),
-        ]).unwrap();
+        gen.predeal(
+            Position::North,
+            &[
+                Card::new(Suit::Spades, Rank::Ace),
+                Card::new(Suit::Hearts, Rank::Ace),
+            ],
+        )
+        .unwrap();
 
         let deal = gen.generate();
 

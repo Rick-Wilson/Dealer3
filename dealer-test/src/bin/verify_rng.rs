@@ -15,8 +15,14 @@ fn main() {
         rng.next_u32();
     }
 
-    println!("RNG values for seed {} starting at call #{}:", seed, start_idx);
-    println!("(These are the values used for shuffling deal #{}):", (start_idx / 52) + 1);
+    println!(
+        "RNG values for seed {} starting at call #{}:",
+        seed, start_idx
+    );
+    println!(
+        "(These are the values used for shuffling deal #{}):",
+        (start_idx / 52) + 1
+    );
     println!();
 
     for i in start_idx..(start_idx + count) {
@@ -25,7 +31,9 @@ fn main() {
         let j_masked = k & 0xFFFF;
         let card_idx = (j_masked % 52) as u8;
 
-        println!("  Call {:3} = 0x{:08x}  >>15 = 0x{:04x}  &0xFFFF = {:5}  %52 = {:2}",
-                 i, val, k, j_masked, card_idx);
+        println!(
+            "  Call {:3} = 0x{:08x}  >>15 = 0x{:04x}  &0xFFFF = {:5}  %52 = {:2}",
+            i, val, k, j_masked, card_idx
+        );
     }
 }

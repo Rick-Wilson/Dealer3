@@ -33,7 +33,12 @@ pub fn format_printall(deal: &Deal, board_number: usize) -> String {
 
     // Print each suit row (spades, hearts, diamonds, clubs)
     let suits = [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs];
-    let positions = [Position::North, Position::East, Position::South, Position::West];
+    let positions = [
+        Position::North,
+        Position::East,
+        Position::South,
+        Position::West,
+    ];
 
     for &suit in &suits {
         let mut cards_count = 10;
@@ -141,7 +146,10 @@ pub fn format_printpbn(
     if let Some(title) = event_name {
         result.push_str(&format!("[Event \"{}\"]\n", title));
     } else if let Some(seed_val) = seed {
-        result.push_str(&format!("[Event \"Hand simulated by dealer, seed {}\"]\n", seed_val));
+        result.push_str(&format!(
+            "[Event \"Hand simulated by dealer, seed {}\"]\n",
+            seed_val
+        ));
     } else {
         result.push_str("[Event \"-\"]\n");
     }
@@ -173,15 +181,16 @@ pub fn format_printpbn(
     result.push_str("[South \"-\"]\n");
 
     // Dealer - rotates by board number if not specified
-    let dealer_pos = dealer.unwrap_or_else(|| {
-        match board_number % 4 {
-            0 => Position::North,
-            1 => Position::East,
-            2 => Position::South,
-            _ => Position::West,
-        }
+    let dealer_pos = dealer.unwrap_or_else(|| match board_number % 4 {
+        0 => Position::North,
+        1 => Position::East,
+        2 => Position::South,
+        _ => Position::West,
     });
-    result.push_str(&format!("[Dealer \"{}\"]\n", position_char_upper(dealer_pos)));
+    result.push_str(&format!(
+        "[Dealer \"{}\"]\n",
+        position_char_upper(dealer_pos)
+    ));
 
     // Vulnerability - rotates by board number if not specified
     let vuln = vulnerability.unwrap_or_else(|| {
@@ -194,11 +203,19 @@ pub fn format_printpbn(
             _ => Vulnerability::All,
         }
     });
-    result.push_str(&format!("[Vulnerable \"{}\"]\n", vulnerability_string(vuln)));
+    result.push_str(&format!(
+        "[Vulnerable \"{}\"]\n",
+        vulnerability_string(vuln)
+    ));
 
     // Deal tag
     result.push_str("[Deal \"N:");
-    for pos in [Position::North, Position::East, Position::South, Position::West] {
+    for pos in [
+        Position::North,
+        Position::East,
+        Position::South,
+        Position::West,
+    ] {
         let hand = deal.hand(pos);
         for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
             let mut cards: Vec<_> = hand.cards_in_suit(suit);
@@ -296,7 +313,12 @@ fn position_char_lower(pos: Position) -> char {
 pub fn format_printcompact(deal: &Deal) -> String {
     let mut result = String::new();
 
-    for pos in [Position::North, Position::East, Position::South, Position::West] {
+    for pos in [
+        Position::North,
+        Position::East,
+        Position::South,
+        Position::West,
+    ] {
         result.push(position_char_lower(pos));
         result.push(' ');
 

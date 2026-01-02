@@ -35,12 +35,9 @@ pub fn parse(input: &str) -> Result<Expr, ParseError> {
     let pairs = ConstraintParser::parse(Rule::constraint, input)?;
 
     // Get the first pair (should be the constraint rule)
-    let pair = pairs
-        .into_iter()
-        .next()
-        .ok_or_else(|| ParseError {
-            message: "Empty input".to_string(),
-        })?;
+    let pair = pairs.into_iter().next().ok_or_else(|| ParseError {
+        message: "Empty input".to_string(),
+    })?;
 
     build_ast(pair.into_inner().next().unwrap())
 }
@@ -98,10 +95,11 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                                 let first = parts.next().unwrap();
 
                                 // Check if first element is a string literal (label) or expression
-                                let (label, expr_pair) = if first.as_rule() == Rule::string_literal {
+                                let (label, expr_pair) = if first.as_rule() == Rule::string_literal
+                                {
                                     // Has label - strip quotes
                                     let label_str = first.as_str();
-                                    let label = label_str[1..label_str.len()-1].to_string();
+                                    let label = label_str[1..label_str.len() - 1].to_string();
                                     (Some(label), parts.next().unwrap())
                                 } else {
                                     // No label - first element is the expression
@@ -116,10 +114,11 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                                 let first = parts.next().unwrap();
 
                                 // Check if first element is a string literal (label) or expression
-                                let (label, expr_pair) = if first.as_rule() == Rule::string_literal {
+                                let (label, expr_pair) = if first.as_rule() == Rule::string_literal
+                                {
                                     // Has label - strip quotes
                                     let label_str = first.as_str();
-                                    let label = label_str[1..label_str.len()-1].to_string();
+                                    let label = label_str[1..label_str.len() - 1].to_string();
                                     (Some(label), parts.next().unwrap())
                                 } else {
                                     // No label - first element is the expression
@@ -130,12 +129,20 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
 
                                 // Check for optional range (min max)
                                 let range = if let Some(min_pair) = parts.next() {
-                                    let min = min_pair.as_str().parse::<i32>().map_err(|_| ParseError {
-                                        message: format!("Invalid frequency range min: {}", min_pair.as_str()),
+                                    let min = min_pair.as_str().parse::<i32>().map_err(|_| {
+                                        ParseError {
+                                            message: format!(
+                                                "Invalid frequency range min: {}",
+                                                min_pair.as_str()
+                                            ),
+                                        }
                                     })?;
-                                    let max = parts.next().unwrap().as_str().parse::<i32>().map_err(|_| ParseError {
-                                        message: format!("Invalid frequency range max"),
-                                    })?;
+                                    let max =
+                                        parts.next().unwrap().as_str().parse::<i32>().map_err(
+                                            |_| ParseError {
+                                                message: format!("Invalid frequency range max"),
+                                            },
+                                        )?;
                                     Some((min, max))
                                 } else {
                                     None
@@ -146,13 +153,19 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                             Rule::action_type => {
                                 let action_type = ActionType::from_str(comp_inner.as_str())
                                     .ok_or_else(|| ParseError {
-                                        message: format!("Invalid action type: {}", comp_inner.as_str()),
+                                        message: format!(
+                                            "Invalid action type: {}",
+                                            comp_inner.as_str()
+                                        ),
                                     })?;
                                 format = Some(action_type);
                             }
                             _ => {
                                 return Err(ParseError {
-                                    message: format!("Unexpected action component: {:?}", comp_inner.as_rule()),
+                                    message: format!(
+                                        "Unexpected action component: {:?}",
+                                        comp_inner.as_rule()
+                                    ),
                                 });
                             }
                         }
@@ -165,7 +178,11 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 }
             }
 
-            Ok(Statement::Action { averages, frequencies, format })
+            Ok(Statement::Action {
+                averages,
+                frequencies,
+                format,
+            })
         }
         Rule::dealer_stmt => {
             let compass_str = inner.into_inner().next().unwrap().as_str().to_lowercase();
@@ -184,10 +201,9 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         }
         Rule::vulnerable_stmt => {
             let vuln_str = inner.into_inner().next().unwrap().as_str();
-            let vuln = VulnerabilityType::from_str(vuln_str)
-                .ok_or_else(|| ParseError {
-                    message: format!("Invalid vulnerability: {}", vuln_str),
-                })?;
+            let vuln = VulnerabilityType::from_str(vuln_str).ok_or_else(|| ParseError {
+                message: format!("Invalid vulnerability: {}", vuln_str),
+            })?;
             Ok(Statement::Vulnerable(vuln))
         }
         Rule::predeal_stmt => {
@@ -229,45 +245,48 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                         CsvTerm::Deal
                     } else if let Some(term_inner) = term_pair.into_inner().next() {
                         match term_inner.as_rule() {
-                        Rule::expr => CsvTerm::Expression(build_ast(term_inner)?),
-                        Rule::string_literal => {
-                            let s = term_inner.as_str();
-                            // Strip quotes
-                            CsvTerm::String(s[1..s.len()-1].to_string())
-                        }
-                        Rule::compass => {
-                            let compass_str = term_inner.as_str().to_lowercase();
-                            let position = match compass_str.as_str() {
-                                "north" | "n" => Position::North,
-                                "south" | "s" => Position::South,
-                                "east" | "e" => Position::East,
-                                "west" | "w" => Position::West,
-                                _ => {
-                                    return Err(ParseError {
-                                        message: format!("Invalid compass: {}", compass_str),
-                                    })
-                                }
-                            };
-                            CsvTerm::Compass(position)
-                        }
-                        Rule::side => {
-                            let side_str = term_inner.as_str().to_lowercase();
-                            match side_str.as_str() {
-                                "ns" => CsvTerm::Side(Side::NS),
-                                "ew" => CsvTerm::Side(Side::EW),
-                                _ => {
-                                    return Err(ParseError {
-                                        message: format!("Invalid side: {}", side_str),
-                                    })
+                            Rule::expr => CsvTerm::Expression(build_ast(term_inner)?),
+                            Rule::string_literal => {
+                                let s = term_inner.as_str();
+                                // Strip quotes
+                                CsvTerm::String(s[1..s.len() - 1].to_string())
+                            }
+                            Rule::compass => {
+                                let compass_str = term_inner.as_str().to_lowercase();
+                                let position = match compass_str.as_str() {
+                                    "north" | "n" => Position::North,
+                                    "south" | "s" => Position::South,
+                                    "east" | "e" => Position::East,
+                                    "west" | "w" => Position::West,
+                                    _ => {
+                                        return Err(ParseError {
+                                            message: format!("Invalid compass: {}", compass_str),
+                                        })
+                                    }
+                                };
+                                CsvTerm::Compass(position)
+                            }
+                            Rule::side => {
+                                let side_str = term_inner.as_str().to_lowercase();
+                                match side_str.as_str() {
+                                    "ns" => CsvTerm::Side(Side::NS),
+                                    "ew" => CsvTerm::Side(Side::EW),
+                                    _ => {
+                                        return Err(ParseError {
+                                            message: format!("Invalid side: {}", side_str),
+                                        })
+                                    }
                                 }
                             }
+                            _ => {
+                                return Err(ParseError {
+                                    message: format!(
+                                        "Unexpected csv_term rule: {:?}",
+                                        term_inner.as_rule()
+                                    ),
+                                })
+                            }
                         }
-                        _ => {
-                            return Err(ParseError {
-                                message: format!("Unexpected csv_term rule: {:?}", term_inner.as_rule()),
-                            })
-                        }
-                    }
                     } else {
                         return Err(ParseError {
                             message: format!("Unexpected csv_term format: {}", term_str),
@@ -459,7 +478,10 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                     "%" => BinaryOp::Mod,
                     _ => {
                         return Err(ParseError {
-                            message: format!("Unknown multiplicative operator: {}", op_pair.as_str()),
+                            message: format!(
+                                "Unknown multiplicative operator: {}",
+                                op_pair.as_str()
+                            ),
                         })
                     }
                 };
@@ -799,7 +821,8 @@ mod tests {
 
     #[test]
     fn test_parse_program_multiple_assignments() {
-        let input = "strong = hcp(north) >= 15\nlong_hearts = hearts(north) >= 5\nstrong && long_hearts";
+        let input =
+            "strong = hcp(north) >= 15\nlong_hearts = hearts(north) >= 5\nstrong && long_hearts";
         let program = parse_program(input).unwrap();
         assert_eq!(program.statements.len(), 3);
 
@@ -847,7 +870,11 @@ mod tests {
         // Simple ternary
         let ast = parse("hcp(north) >= 15 ? 1 : 0").unwrap();
         match ast {
-            Expr::Ternary { condition, true_expr, false_expr } => {
+            Expr::Ternary {
+                condition,
+                true_expr,
+                false_expr,
+            } => {
                 // Condition should be a binary op
                 match *condition {
                     Expr::BinaryOp { op, .. } => assert_eq!(op, BinaryOp::Ge),

@@ -1,5 +1,5 @@
-use dealer_core::{Card, Deal, Hand, Position, Rank, Suit};
 use crate::ParseError;
+use dealer_core::{Card, Deal, Hand, Position, Rank, Suit};
 
 /// Parse a deal in dealer.exe oneline format
 /// Format: "n AKQT3.J6.KJ42.95 e 652.AK42.AQ87.T4 s J74.QT95.T.AK863 w 98.873.9653.QJ72"
@@ -9,7 +9,10 @@ pub fn parse_oneline(input: &str) -> Result<Deal, ParseError> {
 
     if parts.len() != 8 {
         return Err(ParseError {
-            message: format!("Expected 8 parts (4 positions + 4 hands), got {}", parts.len()),
+            message: format!(
+                "Expected 8 parts (4 positions + 4 hands), got {}",
+                parts.len()
+            ),
         });
     }
 
@@ -34,7 +37,12 @@ pub fn parse_oneline(input: &str) -> Result<Deal, ParseError> {
 pub fn format_oneline(deal: &Deal) -> String {
     let mut result = String::new();
 
-    for &pos in &[Position::North, Position::East, Position::South, Position::West] {
+    for &pos in &[
+        Position::North,
+        Position::East,
+        Position::South,
+        Position::West,
+    ] {
         if !result.is_empty() {
             result.push(' ');
         }
@@ -76,7 +84,10 @@ fn parse_hand(s: &str) -> Result<Hand, ParseError> {
     let suits_str: Vec<&str> = s.split('.').collect();
     if suits_str.len() != 4 {
         return Err(ParseError {
-            message: format!("Expected 4 suits separated by dots, got {}", suits_str.len()),
+            message: format!(
+                "Expected 4 suits separated by dots, got {}",
+                suits_str.len()
+            ),
         });
     }
 

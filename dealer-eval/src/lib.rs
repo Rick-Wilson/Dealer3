@@ -6,7 +6,11 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvalError {
     /// Function requires specific number of arguments
-    InvalidArgumentCount { function: String, expected: usize, got: usize },
+    InvalidArgumentCount {
+        function: String,
+        expected: usize,
+        got: usize,
+    },
     /// Invalid argument type or value
     InvalidArgument(String),
     /// Function not yet implemented
@@ -18,8 +22,16 @@ pub enum EvalError {
 impl std::fmt::Display for EvalError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            EvalError::InvalidArgumentCount { function, expected, got } => {
-                write!(f, "Function {} expects {} arguments, got {}", function, expected, got)
+            EvalError::InvalidArgumentCount {
+                function,
+                expected,
+                got,
+            } => {
+                write!(
+                    f,
+                    "Function {} expects {} arguments, got {}",
+                    function, expected, got
+                )
             }
             EvalError::InvalidArgument(msg) => write!(f, "Invalid argument: {}", msg),
             EvalError::NotImplemented(feature) => write!(f, "Not implemented: {}", feature),
@@ -77,7 +89,12 @@ pub fn eval_program(program: &Program, deal: &Deal) -> Result<i32, EvalError> {
                 // Condition statement is the constraint to evaluate
                 final_expr = Some(expr);
             }
-            Statement::Produce(_) | Statement::Action { .. } | Statement::Dealer(_) | Statement::Vulnerable(_) | Statement::Predeal { .. } | Statement::CsvReport(_) => {
+            Statement::Produce(_)
+            | Statement::Action { .. }
+            | Statement::Dealer(_)
+            | Statement::Vulnerable(_)
+            | Statement::Predeal { .. }
+            | Statement::CsvReport(_) => {
                 // These are handled by the CLI, not the evaluator
                 // Just skip them here
             }
@@ -144,8 +161,16 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
                 BinaryOp::Ge => Ok(if left_val >= right_val { 1 } else { 0 }),
 
                 // Logical (treat 0 as false, non-zero as true)
-                BinaryOp::And => Ok(if left_val != 0 && right_val != 0 { 1 } else { 0 }),
-                BinaryOp::Or => Ok(if left_val != 0 || right_val != 0 { 1 } else { 0 }),
+                BinaryOp::And => Ok(if left_val != 0 && right_val != 0 {
+                    1
+                } else {
+                    0
+                }),
+                BinaryOp::Or => Ok(if left_val != 0 || right_val != 0 {
+                    1
+                } else {
+                    0
+                }),
             }
         }
 
@@ -157,7 +182,11 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
             }
         }
 
-        Expr::Ternary { condition, true_expr, false_expr } => {
+        Expr::Ternary {
+            condition,
+            true_expr,
+            false_expr,
+        } => {
             let cond_val = eval(condition, ctx)?;
             if cond_val != 0 {
                 eval(true_expr, ctx)
@@ -598,10 +627,7 @@ fn eval_card_arg(arg: &Expr) -> Result<Card, EvalError> {
 }
 
 /// Evaluate a shape pattern against a hand
-fn eval_shape_pattern(
-    hand: &dealer_core::Hand,
-    pattern: &ShapePattern,
-) -> Result<bool, EvalError> {
+fn eval_shape_pattern(hand: &dealer_core::Hand, pattern: &ShapePattern) -> Result<bool, EvalError> {
     let mut result = false;
 
     for spec in &pattern.specs {
@@ -647,27 +673,15 @@ mod tests {
         let ctx = EvalContext::new(&deal);
 
         // 5 + 3
-        let expr = Expr::binary(
-            BinaryOp::Add,
-            Expr::Literal(5),
-            Expr::Literal(3),
-        );
+        let expr = Expr::binary(BinaryOp::Add, Expr::Literal(5), Expr::Literal(3));
         assert_eq!(eval(&expr, &ctx).unwrap(), 8);
 
         // 10 - 4
-        let expr = Expr::binary(
-            BinaryOp::Sub,
-            Expr::Literal(10),
-            Expr::Literal(4),
-        );
+        let expr = Expr::binary(BinaryOp::Sub, Expr::Literal(10), Expr::Literal(4));
         assert_eq!(eval(&expr, &ctx).unwrap(), 6);
 
         // 6 * 7
-        let expr = Expr::binary(
-            BinaryOp::Mul,
-            Expr::Literal(6),
-            Expr::Literal(7),
-        );
+        let expr = Expr::binary(BinaryOp::Mul, Expr::Literal(6), Expr::Literal(7));
         assert_eq!(eval(&expr, &ctx).unwrap(), 42);
     }
 
@@ -678,19 +692,11 @@ mod tests {
         let ctx = EvalContext::new(&deal);
 
         // 5 > 3 (true)
-        let expr = Expr::binary(
-            BinaryOp::Gt,
-            Expr::Literal(5),
-            Expr::Literal(3),
-        );
+        let expr = Expr::binary(BinaryOp::Gt, Expr::Literal(5), Expr::Literal(3));
         assert_eq!(eval(&expr, &ctx).unwrap(), 1);
 
         // 5 < 3 (false)
-        let expr = Expr::binary(
-            BinaryOp::Lt,
-            Expr::Literal(5),
-            Expr::Literal(3),
-        );
+        let expr = Expr::binary(BinaryOp::Lt, Expr::Literal(5), Expr::Literal(3));
         assert_eq!(eval(&expr, &ctx).unwrap(), 0);
     }
 
@@ -701,27 +707,15 @@ mod tests {
         let ctx = EvalContext::new(&deal);
 
         // 1 && 1 (true)
-        let expr = Expr::binary(
-            BinaryOp::And,
-            Expr::Literal(1),
-            Expr::Literal(1),
-        );
+        let expr = Expr::binary(BinaryOp::And, Expr::Literal(1), Expr::Literal(1));
         assert_eq!(eval(&expr, &ctx).unwrap(), 1);
 
         // 1 && 0 (false)
-        let expr = Expr::binary(
-            BinaryOp::And,
-            Expr::Literal(1),
-            Expr::Literal(0),
-        );
+        let expr = Expr::binary(BinaryOp::And, Expr::Literal(1), Expr::Literal(0));
         assert_eq!(eval(&expr, &ctx).unwrap(), 0);
 
         // 0 || 1 (true)
-        let expr = Expr::binary(
-            BinaryOp::Or,
-            Expr::Literal(0),
-            Expr::Literal(1),
-        );
+        let expr = Expr::binary(BinaryOp::Or, Expr::Literal(0), Expr::Literal(1));
         assert_eq!(eval(&expr, &ctx).unwrap(), 1);
     }
 
@@ -749,19 +743,31 @@ mod tests {
 
         // hearts(south)
         let expr = Expr::call(Function::Hearts, Expr::Position(Position::South));
-        assert_eq!(eval(&expr, &ctx).unwrap(), south_hand.suit_length(Suit::Hearts) as i32);
+        assert_eq!(
+            eval(&expr, &ctx).unwrap(),
+            south_hand.suit_length(Suit::Hearts) as i32
+        );
 
         // spades(south)
         let expr = Expr::call(Function::Spades, Expr::Position(Position::South));
-        assert_eq!(eval(&expr, &ctx).unwrap(), south_hand.suit_length(Suit::Spades) as i32);
+        assert_eq!(
+            eval(&expr, &ctx).unwrap(),
+            south_hand.suit_length(Suit::Spades) as i32
+        );
 
         // diamonds(south)
         let expr = Expr::call(Function::Diamonds, Expr::Position(Position::South));
-        assert_eq!(eval(&expr, &ctx).unwrap(), south_hand.suit_length(Suit::Diamonds) as i32);
+        assert_eq!(
+            eval(&expr, &ctx).unwrap(),
+            south_hand.suit_length(Suit::Diamonds) as i32
+        );
 
         // clubs(south)
         let expr = Expr::call(Function::Clubs, Expr::Position(Position::South));
-        assert_eq!(eval(&expr, &ctx).unwrap(), south_hand.suit_length(Suit::Clubs) as i32);
+        assert_eq!(
+            eval(&expr, &ctx).unwrap(),
+            south_hand.suit_length(Suit::Clubs) as i32
+        );
     }
 
     #[test]
@@ -791,7 +797,11 @@ mod tests {
 
         let north_hearts = deal.hand(Position::North).suit_length(Suit::Hearts);
         let south_hcp = deal.hand(Position::South).hcp();
-        let expected = if north_hearts >= 5 && south_hcp <= 13 { 1 } else { 0 };
+        let expected = if north_hearts >= 5 && south_hcp <= 13 {
+            1
+        } else {
+            0
+        };
         assert_eq!(result, expected);
     }
 
@@ -854,7 +864,10 @@ mod tests {
             }
         }
 
-        assert!(found_4333, "Should find at least one 4-3-3-3 hand in 1000 deals");
+        assert!(
+            found_4333,
+            "Should find at least one 4-3-3-3 hand in 1000 deals"
+        );
     }
 
     #[test]
@@ -925,7 +938,10 @@ mod tests {
             let is_exact_4333 = lengths == [4, 3, 3, 3];
 
             if is_any_4333 && !is_exact_4333 {
-                assert_eq!(result, 1, "Should match 4333 distributions except exact 4333");
+                assert_eq!(
+                    result, 1,
+                    "Should match 4333 distributions except exact 4333"
+                );
             } else if is_exact_4333 {
                 assert_eq!(result, 0, "Should not match exact 4333 (excluded)");
             }
@@ -1459,7 +1475,8 @@ mod tests {
         let expected = if cccc_ok && shape_ok { 1 } else { 0 };
 
         assert_eq!(
-            result, expected,
+            result,
+            expected,
             "CCCC value: {}, suit_lengths: {:?}, cccc_ok: {}, shape_ok: {}",
             cccc_value,
             north.suit_lengths(),
@@ -1493,7 +1510,8 @@ mod tests {
         let deal = gen.generate();
 
         // Multiple variables
-        let input = "strong = hcp(north) >= 15\nlong_hearts = hearts(north) >= 5\nstrong && long_hearts";
+        let input =
+            "strong = hcp(north) >= 15\nlong_hearts = hearts(north) >= 5\nstrong && long_hearts";
         let program = parse_program(input).unwrap();
         let result = eval_program(&program, &deal).unwrap();
 
@@ -1520,7 +1538,11 @@ mod tests {
 
         let north = deal.hand(Position::North);
         let south = deal.hand(Position::South);
-        let expected = if north.hcp() + south.hcp() >= 25 { 1 } else { 0 };
+        let expected = if north.hcp() + south.hcp() >= 25 {
+            1
+        } else {
+            0
+        };
         assert_eq!(result, expected);
     }
 
@@ -1647,7 +1669,11 @@ mod tests {
         let result = eval(&ast, &ctx).unwrap();
 
         let north_hcp = deal.hand(Position::North).hcp() as i32;
-        let expected = if north_hcp >= 20 { north_hcp + 100 } else { north_hcp };
+        let expected = if north_hcp >= 20 {
+            north_hcp + 100
+        } else {
+            north_hcp
+        };
         assert_eq!(result, expected);
     }
 
@@ -1663,7 +1689,11 @@ mod tests {
 
         let north = deal.hand(Position::North);
         let expected = if north.hcp() >= 15 {
-            if north.suit_length(Suit::Hearts) >= 5 { 2 } else { 1 }
+            if north.suit_length(Suit::Hearts) >= 5 {
+                2
+            } else {
+                1
+            }
         } else {
             0
         };

@@ -2,9 +2,12 @@ use clap::Parser;
 use dealer_core::{DealGenerator, Position};
 use dealer_eval::{eval, eval_program, EvalContext};
 use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
-use dealer_pbn::{format_oneline, format_printall, format_printew, format_printpbn, format_printcompact, format_hand_pbn, Vulnerability};
+use dealer_pbn::{
+    format_hand_pbn, format_oneline, format_printall, format_printcompact, format_printew,
+    format_printpbn, Vulnerability,
+};
 use std::fs::OpenOptions;
-use std::io::{self, Read, Write, BufWriter};
+use std::io::{self, BufWriter, Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
@@ -209,7 +212,7 @@ impl From<VulnerabilityArg> for Vulnerability {
 /// Parse predeal card string (format: S8743,HA9,D642,CQT64)
 /// Returns a vector of cards
 fn parse_predeal_cards(card_str: &str) -> Result<Vec<dealer_core::Card>, String> {
-    use dealer_core::{Card, Suit, Rank};
+    use dealer_core::{Card, Rank, Suit};
 
     let mut cards = Vec::new();
 
@@ -400,7 +403,11 @@ fn main() {
             .open(filename)
             .unwrap_or_else(|e| {
                 eprintln!("ERROR!! Open CSV Report file FAILED");
-                eprintln!("ERROR!! Can't open [{}] for {}", filename, if write_mode { "write" } else { "append" });
+                eprintln!(
+                    "ERROR!! Can't open [{}] for {}",
+                    filename,
+                    if write_mode { "write" } else { "append" }
+                );
                 eprintln!("{}", e);
                 std::process::exit(1);
             });
@@ -439,7 +446,12 @@ fn main() {
 
     // Track frequency statements: (label, expression, histogram, range)
     use std::collections::HashMap;
-    let mut frequencies: Vec<(Option<String>, Expr, HashMap<i32, usize>, Option<(i32, i32)>)> = Vec::new();
+    let mut frequencies: Vec<(
+        Option<String>,
+        Expr,
+        HashMap<i32, usize>,
+        Option<(i32, i32)>,
+    )> = Vec::new();
 
     // Track CSV report statements
     use dealer_parser::{CsvTerm, Side};
@@ -448,7 +460,11 @@ fn main() {
     for statement in &program.statements {
         match statement {
             Statement::Produce(n) => produce_count_from_input = Some(*n),
-            Statement::Action { averages: avg_specs, frequencies: freq_specs, format: action_format } => {
+            Statement::Action {
+                averages: avg_specs,
+                frequencies: freq_specs,
+                format: action_format,
+            } => {
                 // Extract format if present
                 if let Some(action_type) = action_format {
                     format_from_input = Some(match action_type {
@@ -465,7 +481,12 @@ fn main() {
                 }
                 // Extract frequencies if present
                 for freq_spec in freq_specs {
-                    frequencies.push((freq_spec.label.clone(), freq_spec.expr.clone(), HashMap::new(), freq_spec.range));
+                    frequencies.push((
+                        freq_spec.label.clone(),
+                        freq_spec.expr.clone(),
+                        HashMap::new(),
+                        freq_spec.range,
+                    ));
                 }
             }
             Statement::Dealer(pos) => {
@@ -500,20 +521,17 @@ fn main() {
     let produce_count = if generate_mode {
         produce_count_from_input.unwrap_or(usize::MAX) // No limit in generate mode
     } else {
-        args.produce
-            .or(produce_count_from_input)
-            .unwrap_or(40) // dealer.exe default for -p
+        args.produce.or(produce_count_from_input).unwrap_or(40) // dealer.exe default for -p
     };
 
-    let output_format = args.format
+    let output_format = args
+        .format
         .or(format_from_input)
         .unwrap_or(OutputFormat::PrintOneLine); // Default format
 
-    let dealer_position = args.dealer
-        .or(dealer_from_input);
+    let dealer_position = args.dealer.or(dealer_from_input);
 
-    let vulnerability = args.vulnerability
-        .or(vuln_from_input);
+    let vulnerability = args.vulnerability.or(vuln_from_input);
 
     // Start timing
     let start_time = SystemTime::now();
@@ -665,7 +683,14 @@ fn main() {
                             let dealer_pos = dealer_position.map(|d| d.into());
                             let vuln = vulnerability.map(|v| v.into());
                             let event_name = args.title.as_deref();
-                            format_printpbn(&deal, produced, dealer_pos, vuln, event_name, Some(seed))
+                            format_printpbn(
+                                &deal,
+                                produced,
+                                dealer_pos,
+                                vuln,
+                                event_name,
+                                Some(seed),
+                            )
                         }
                         OutputFormat::PrintCompact => format_printcompact(&deal),
                         OutputFormat::PrintOneLine => format_oneline(&deal),
@@ -682,15 +707,13 @@ fn main() {
 
                         for term in csv_terms {
                             match term {
-                                CsvTerm::Expression(expr) => {
-                                    match eval(expr, &ctx) {
-                                        Ok(val) => line_parts.push(val.to_string()),
-                                        Err(e) => {
-                                            eprintln!("CSV evaluation error: {}", e);
-                                            std::process::exit(1);
-                                        }
+                                CsvTerm::Expression(expr) => match eval(expr, &ctx) {
+                                    Ok(val) => line_parts.push(val.to_string()),
+                                    Err(e) => {
+                                        eprintln!("CSV evaluation error: {}", e);
+                                        std::process::exit(1);
                                     }
-                                }
+                                },
                                 CsvTerm::String(s) => {
                                     line_parts.push(format!("'{}'", s));
                                 }
@@ -705,18 +728,24 @@ fn main() {
                                     };
                                     let hand1 = deal.hand(pos1);
                                     let hand2 = deal.hand(pos2);
-                                    line_parts.push(format!("{} {}", format_hand_pbn(hand1), format_hand_pbn(hand2)));
+                                    line_parts.push(format!(
+                                        "{} {}",
+                                        format_hand_pbn(hand1),
+                                        format_hand_pbn(hand2)
+                                    ));
                                 }
                                 CsvTerm::Deal => {
                                     let n = deal.hand(Position::North);
                                     let e = deal.hand(Position::East);
                                     let s = deal.hand(Position::South);
                                     let w = deal.hand(Position::West);
-                                    line_parts.push(format!("{} {} {} {}",
+                                    line_parts.push(format!(
+                                        "{} {} {} {}",
                                         format_hand_pbn(n),
                                         format_hand_pbn(e),
                                         format_hand_pbn(s),
-                                        format_hand_pbn(w)));
+                                        format_hand_pbn(w)
+                                    ));
                                 }
                             }
                         }
@@ -752,7 +781,11 @@ fn main() {
     if !averages.is_empty() {
         eprintln!();
         for (label, _, sum, count) in &averages {
-            let avg = if *count > 0 { sum / (*count as f64) } else { 0.0 };
+            let avg = if *count > 0 {
+                sum / (*count as f64)
+            } else {
+                0.0
+            };
             if let Some(label_text) = label {
                 eprintln!("{}: {:.2}", label_text, avg);
             } else {

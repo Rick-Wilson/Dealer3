@@ -3,7 +3,7 @@ use gnurandom::GnuRandom;
 fn main() {
     let mut rng = GnuRandom::new();
     rng.srandom(1);
-    
+
     println!("RNG values for seed 1:");
     for i in 0..60 {
         let val = rng.next_u32();

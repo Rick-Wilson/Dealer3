@@ -85,10 +85,7 @@ impl Hand {
     /// Check if hand is balanced (4-3-3-3, 4-4-3-2, or 5-3-3-2)
     pub fn is_balanced(&self) -> bool {
         let dist = self.distribution();
-        matches!(
-            dist,
-            [4, 3, 3, 3] | [4, 4, 3, 2] | [5, 3, 3, 2]
-        )
+        matches!(dist, [4, 3, 3, 3] | [4, 4, 3, 2] | [5, 3, 3, 2])
     }
 
     /// Count controls (A=2, K=1)
@@ -186,7 +183,9 @@ impl Hand {
     /// - Doubleton: 0 for AK, 1 for Ax or Kx, 2 otherwise
     /// - 3+ cards: Start with 3, subtract 1 for each A/K/Q in top 3 positions
     pub fn losers_in_suit(&self, suit: Suit) -> u8 {
-        let mut cards: Vec<Card> = self.cards.iter()
+        let mut cards: Vec<Card> = self
+            .cards
+            .iter()
             .filter(|c| c.suit == suit)
             .copied()
             .collect();
@@ -345,7 +344,8 @@ impl Hand {
         self.cards
             .iter()
             .filter(|c| {
-                c.suit == suit && matches!(c.rank, Rank::Ace | Rank::King | Rank::Queen | Rank::Jack)
+                c.suit == suit
+                    && matches!(c.rank, Rank::Ace | Rank::King | Rank::Queen | Rank::Jack)
             })
             .count() as u8
     }
@@ -409,7 +409,9 @@ impl Hand {
     /// Calculate suit quality metric (Bridge World Oct 1982)
     /// Returns quality value multiplied by 100 to use integer math
     pub fn suit_quality(&self, suit: Suit) -> i32 {
-        let mut cards: Vec<Card> = self.cards.iter()
+        let mut cards: Vec<Card> = self
+            .cards
+            .iter()
             .filter(|c| c.suit == suit)
             .copied()
             .collect();
@@ -493,7 +495,9 @@ impl Hand {
 
         // Evaluate each suit
         for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
-            let mut cards: Vec<Card> = self.cards.iter()
+            let mut cards: Vec<Card> = self
+                .cards
+                .iter()
                 .filter(|c| c.suit == suit)
                 .copied()
                 .collect();

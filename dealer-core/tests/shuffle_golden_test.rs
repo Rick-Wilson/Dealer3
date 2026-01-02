@@ -31,9 +31,13 @@ fn test_shuffle_with_seed(seed: u32, golden_file: &str) {
         let actual_trimmed = actual.trim();
 
         assert_eq!(
-            actual_trimmed, expected_trimmed,
+            actual_trimmed,
+            expected_trimmed,
             "Mismatch at deal #{} (seed={})\nExpected: {}\nActual:   {}",
-            i + 1, seed, expected_trimmed, actual_trimmed
+            i + 1,
+            seed,
+            expected_trimmed,
+            actual_trimmed
         );
     }
 }
@@ -79,8 +83,10 @@ fn test_shuffle_consistency() {
         let output2 = format_oneline(&deal2);
 
         assert_eq!(
-            output1, output2,
-            "Inconsistent output at deal #{} with seed=999", i + 1
+            output1,
+            output2,
+            "Inconsistent output at deal #{} with seed=999",
+            i + 1
         );
     }
 }

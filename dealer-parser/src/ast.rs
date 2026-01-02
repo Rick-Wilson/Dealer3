@@ -29,7 +29,10 @@ pub enum Statement {
     /// Vulnerable statement: vulnerable none/NS/EW/all
     Vulnerable(VulnerabilityType),
     /// Predeal statement: predeal N/E/S/W cards
-    Predeal { position: Position, cards: Vec<dealer_core::Card> },
+    Predeal {
+        position: Position,
+        cards: Vec<dealer_core::Card>,
+    },
     /// CSV report statement: csvrpt(terms...)
     CsvReport(Vec<CsvTerm>),
 }

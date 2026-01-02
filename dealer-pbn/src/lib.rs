@@ -1,10 +1,10 @@
 mod deal;
-mod oneline;
 mod formatters;
+mod oneline;
 
-pub use deal::{parse_deal_tag, format_deal_tag, PbnDeal, ParseError};
-pub use oneline::{parse_oneline, format_oneline};
+pub use deal::{format_deal_tag, parse_deal_tag, ParseError, PbnDeal};
 pub use formatters::{
-    format_printall, format_printew, format_printpbn, format_printcompact, format_hand_pbn,
+    format_hand_pbn, format_printall, format_printcompact, format_printew, format_printpbn,
     PrintFormat, Vulnerability,
 };
+pub use oneline::{format_oneline, parse_oneline};

@@ -9,7 +9,8 @@ fn main() {
 
     for position in Position::ALL {
         let hand = deal.hand(position);
-        println!("{}: {} cards, {} HCP, Shape: {}",
+        println!(
+            "{}: {} cards, {} HCP, Shape: {}",
             position.to_char(),
             hand.len(),
             hand.hcp(),
@@ -33,12 +34,14 @@ fn main() {
     // Print statistics
     println!("Statistics:");
     println!("-----------");
-    println!("North: {} HCP, {} controls, balanced: {}",
+    println!(
+        "North: {} HCP, {} controls, balanced: {}",
         deal.north.hcp(),
         deal.north.controls(),
         deal.north.is_balanced()
     );
-    println!("South: {} HCP, {} controls, balanced: {}",
+    println!(
+        "South: {} HCP, {} controls, balanced: {}",
         deal.south.hcp(),
         deal.south.controls(),
         deal.south.is_balanced()

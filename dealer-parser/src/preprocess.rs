@@ -16,27 +16,31 @@ pub fn preprocess(input: &str) -> String {
 
     let shape_re = Regex::new(r"shape\s*\([^)]+\)").unwrap();
 
-    shape_re.replace_all(input, |caps: &regex::Captures| {
-        let shape_call = &caps[0];
+    shape_re
+        .replace_all(input, |caps: &regex::Captures| {
+            let shape_call = &caps[0];
 
-        // Match 4-digit numbers, capturing position info
-        let digit_re = Regex::new(r"\b(\d{4})\b").unwrap();
+            // Match 4-digit numbers, capturing position info
+            let digit_re = Regex::new(r"\b(\d{4})\b").unwrap();
 
-        digit_re.replace_all(shape_call, |inner_caps: &regex::Captures| {
-            let digits = &inner_caps[1];
-            let match_start = inner_caps.get(0).unwrap().start();
+            digit_re
+                .replace_all(shape_call, |inner_caps: &regex::Captures| {
+                    let digits = &inner_caps[1];
+                    let match_start = inner_caps.get(0).unwrap().start();
 
-            // Check if this 4-digit number follows "any "
-            let before_match = &shape_call[..match_start];
-            if before_match.ends_with("any ") {
-                // Don't mark it - "any" disambiguates
-                digits.to_string()
-            } else {
-                // Mark it with %s prefix
-                format!("%s{}", digits)
-            }
-        }).to_string()
-    }).to_string()
+                    // Check if this 4-digit number follows "any "
+                    let before_match = &shape_call[..match_start];
+                    if before_match.ends_with("any ") {
+                        // Don't mark it - "any" disambiguates
+                        digits.to_string()
+                    } else {
+                        // Mark it with %s prefix
+                        format!("%s{}", digits)
+                    }
+                })
+                .to_string()
+        })
+        .to_string()
 }
 
 #[cfg(test)]
@@ -45,17 +49,14 @@ mod tests {
 
     #[test]
     fn test_preprocess_shape_function() {
-        assert_eq!(
-            preprocess("shape(north, 5242)"),
-            "shape(north, %s5242)"
-        );
+        assert_eq!(preprocess("shape(north, 5242)"), "shape(north, %s5242)");
     }
 
     #[test]
     fn test_preprocess_shape_with_any() {
         assert_eq!(
             preprocess("shape(north, any 4333)"),
-            "shape(north, any 4333)"  // 'any' prevents marking
+            "shape(north, any 4333)" // 'any' prevents marking
         );
     }
 
@@ -63,7 +64,7 @@ mod tests {
     fn test_preprocess_preserves_regular_numbers() {
         assert_eq!(
             preprocess("cccc(north) >= 1500"),
-            "cccc(north) >= 1500"  // Not in shape(), not marked
+            "cccc(north) >= 1500" // Not in shape(), not marked
         );
     }
 
@@ -87,7 +88,7 @@ mod tests {
     fn test_preprocess_shape_exclusion() {
         assert_eq!(
             preprocess("shape(north, any 4333 - 4333)"),
-            "shape(north, any 4333 - %s4333)"  // Only mark 4333 after -, not after "any "
+            "shape(north, any 4333 - %s4333)" // Only mark 4333 after -, not after "any "
         );
     }
 

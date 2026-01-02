@@ -14,10 +14,12 @@ impl GnuRandom {
         // Source: https://github.com/ThorvaldAagaard/Dealer/blob/main/__random.c
         // The 64-bit LCG overflows, creating negative values and unique output
         for i in 1..31 {
-            self.state[i] = self.state[i - 1].wrapping_mul(1103515145).wrapping_add(12345);
+            self.state[i] = self.state[i - 1]
+                .wrapping_mul(1103515145)
+                .wrapping_add(12345);
         }
 
-        self.fptr = 3;  // SEP_3
+        self.fptr = 3; // SEP_3
         self.rptr = 0;
 
         // Warmup: 10 * rand_deg iterations
@@ -93,26 +95,9 @@ mod tests {
         // Verified against dealer.exe's rand.o/srand.o using rng_probe
         // Reference: https://www.csc.kth.se/~mdj/guile-ref/guile-ref_69.html (shows first value 269167349)
         let expected: [u32; 20] = [
-            269167349,
-            3317012772,
-            3037285189,
-            3401557626,
-            2521781105,
-            2065258565,
-            1482041942,
-            628309313,
-            1207992583,
-            2382384936,
-            1768143021,
-            3682773873,
-            3955356955,
-            3180623894,
-            3111145845,
-            1145084505,
-            2396622951,
-            3748706040,
-            2988814062,
-            146139516,
+            269167349, 3317012772, 3037285189, 3401557626, 2521781105, 2065258565, 1482041942,
+            628309313, 1207992583, 2382384936, 1768143021, 3682773873, 3955356955, 3180623894,
+            3111145845, 1145084505, 2396622951, 3748706040, 2988814062, 146139516,
         ];
 
         for (i, &expected_val) in expected.iter().enumerate() {
@@ -141,16 +126,8 @@ mod tests {
         // Test with seed=2 to verify different seed works correctly
         // Values from dealer.exe rng_probe with seed=2
         let expected: [u32; 10] = [
-            1858980908,
-            1463972797,
-            3014841053,
-            46344911,
-            2127386354,
-            4256254646,
-            2737123461,
-            2264856394,
-            3087684303,
-            1485731095,
+            1858980908, 1463972797, 3014841053, 46344911, 2127386354, 4256254646, 2737123461,
+            2264856394, 3087684303, 1485731095,
         ];
 
         for (i, &expected_val) in expected.iter().enumerate() {
