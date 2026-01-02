@@ -89,7 +89,9 @@ pub struct DoubleDummyResult {
 impl DoubleDummyResult {
     /// Create a new empty result
     pub fn new() -> Self {
-        Self { tricks: [[0; 4]; 5] }
+        Self {
+            tricks: [[0; 4]; 5],
+        }
     }
 
     /// Set tricks for a specific denomination and declarer
@@ -254,7 +256,11 @@ impl GameState {
 
         if let Some(suit_led) = self.current_trick.suit_led() {
             // Must follow suit if possible
-            let following: Vec<Card> = hand.iter().filter(|c| c.suit == suit_led).copied().collect();
+            let following: Vec<Card> = hand
+                .iter()
+                .filter(|c| c.suit == suit_led)
+                .copied()
+                .collect();
             if !following.is_empty() {
                 return following;
             }
@@ -429,10 +435,7 @@ mod tests {
 
     #[test]
     fn test_denomination_conversion() {
-        assert_eq!(
-            Denomination::from_suit(Suit::Spades),
-            Denomination::Spades
-        );
+        assert_eq!(Denomination::from_suit(Suit::Spades), Denomination::Spades);
         assert_eq!(Denomination::from_suit(Suit::Hearts), Denomination::Hearts);
         assert_eq!(
             Denomination::from_suit(Suit::Diamonds),
@@ -485,22 +488,18 @@ mod tests {
         let mut trick = TrickState::new(Position::North, Some(Suit::Spades));
 
         // Play a complete trick (Spades are trump)
-        trick.cards_played.push((
-            Position::North,
-            Card::new(Suit::Hearts, Rank::Ace),
-        ));
-        trick.cards_played.push((
-            Position::East,
-            Card::new(Suit::Spades, Rank::Two),
-        )); // Trump
-        trick.cards_played.push((
-            Position::South,
-            Card::new(Suit::Hearts, Rank::King),
-        ));
-        trick.cards_played.push((
-            Position::West,
-            Card::new(Suit::Hearts, Rank::Queen),
-        ));
+        trick
+            .cards_played
+            .push((Position::North, Card::new(Suit::Hearts, Rank::Ace)));
+        trick
+            .cards_played
+            .push((Position::East, Card::new(Suit::Spades, Rank::Two))); // Trump
+        trick
+            .cards_played
+            .push((Position::South, Card::new(Suit::Hearts, Rank::King)));
+        trick
+            .cards_played
+            .push((Position::West, Card::new(Suit::Hearts, Rank::Queen)));
 
         // East should win with the trump
         assert_eq!(trick.winner(), Some(Position::East));
