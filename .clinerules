@@ -135,6 +135,10 @@ Priority features for next implementation:
 3. **Update documentation** - keep FILTER_LANGUAGE_STATUS.md and related docs current
 4. **Breaking changes only pre-1.0** - we're still 0.x, but be careful
 5. **Match dealer.exe behavior exactly** for implemented features
+6. **Pre-commit checks** - Before committing, always run and fix:
+   - `cargo fmt --all` - Format all code
+   - `cargo clippy --workspace --all-targets --all-features -- -D warnings` - Fix all clippy warnings
+   - `cargo test --workspace` - Ensure all tests pass
 
 ## Known Issues
 
