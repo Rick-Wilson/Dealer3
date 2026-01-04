@@ -25,3 +25,6 @@ test-data/
 
 # Distribution artifacts
 dist/
+
+# X-ray test runs
+bridge-solver/examples/xray/runs/

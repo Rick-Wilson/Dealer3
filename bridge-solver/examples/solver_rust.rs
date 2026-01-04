@@ -1,0 +1,289 @@
+//! Rust solver with C++ solver-compatible file format and output
+//!
+//! Usage: cargo run --example xray/solver_rust --release -- -f <file>
+//!
+//! File format (same as C++ solver):
+//!   Line 1: North hand (spades hearts diamonds clubs, space-separated)
+//!   Line 2: West hand   East hand (space-separated, aligned)
+//!   Line 3: South hand
+//!   Line 4: Trump (N/S/H/D/C) - optional, defaults to all 5
+//!   Line 5: Leader (W/N/E/S) - optional, defaults to all 4
+
+use dealer_dds::solver2::{get_node_count, set_xray_limit, set_no_pruning, set_no_tt, Hands, Solver};
+use dealer_dds::solver2::{CLUB, DIAMOND, HEART, NOTRUMP, SPADE};
+use dealer_dds::solver2::{EAST, NORTH, SOUTH, WEST};
+use std::env;
+use std::fs;
+use std::time::Instant;
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    // Parse arguments
+    let mut file_path = None;
+    let mut xray_iterations = 0usize;
+    let mut no_pruning = false;
+    let mut no_tt = false;
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "-f" && i + 1 < args.len() {
+            file_path = Some(&args[i + 1]);
+            i += 2;
+        } else if args[i] == "-X" && i + 1 < args.len() {
+            xray_iterations = args[i + 1].parse().unwrap_or(0);
+            i += 2;
+        } else if args[i] == "-P" {
+            no_pruning = true;
+            i += 1;
+        } else if args[i] == "-T" {
+            no_tt = true;
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
+
+    let file_path = match file_path {
+        Some(p) => p,
+        None => {
+            eprintln!("Usage: solver_rust -f <file> [-X <iterations>] [-P] [-T]");
+            std::process::exit(1);
+        }
+    };
+
+    // Set xray limit if specified
+    if xray_iterations > 0 {
+        set_xray_limit(xray_iterations);
+    }
+
+    // Set no-pruning mode if specified
+    if no_pruning {
+        set_no_pruning(true);
+    }
+
+    // Set no-TT mode if specified
+    if no_tt {
+        set_no_tt(true);
+    }
+
+    // Read and parse the file
+    let content = fs::read_to_string(file_path).expect("Failed to read file");
+    let lines: Vec<&str> = content.lines().collect();
+
+    if lines.len() < 3 {
+        eprintln!("Error: File must have at least 3 lines (N, W E, S)");
+        std::process::exit(1);
+    }
+
+    // Parse hands
+    let north_str = lines[0].trim();
+    let west_east_str = lines[1];
+    let south_str = lines[2].trim();
+
+    // Split west and east from line 2 (they're separated by multiple spaces)
+    let (west_str, east_str) = parse_west_east(west_east_str);
+
+    let hands = Hands::from_solver_format(north_str, &west_str, &east_str, south_str)
+        .expect("Failed to parse hands");
+
+    // Parse optional trump (line 4)
+    let trump: Option<usize> = if lines.len() > 3 {
+        let trump_str = lines[3].trim();
+        if !trump_str.is_empty() {
+            Some(parse_trump(trump_str.chars().next().unwrap()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Parse optional leader (line 5)
+    let leader: Option<usize> = if lines.len() > 4 {
+        let leader_str = lines[4].trim();
+        if !leader_str.is_empty() {
+            Some(parse_seat(leader_str.chars().next().unwrap()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Print hand diagram
+    print_hand_diagram(&hands);
+
+    // Determine what to solve
+    let trumps: Vec<usize> = match trump {
+        Some(t) => vec![t],
+        None => vec![NOTRUMP, SPADE, HEART, DIAMOND, CLUB],
+    };
+
+    let leaders: Vec<usize> = match leader {
+        Some(l) => vec![l],
+        None => vec![WEST, EAST, NORTH, SOUTH],
+    };
+
+    // Solve for each trump/leader combination
+    for &t in &trumps {
+        let trump_char = trump_to_char(t);
+
+        if leaders.len() == 1 {
+            // Single leader - simple output
+            let l = leaders[0];
+            let start = Instant::now();
+            let solver = Solver::new(hands, t, l);
+            let result = solver.solve();
+            let elapsed = start.elapsed();
+            let nodes = get_node_count();
+            println!(
+                "{}  {}  {:.2} s {:.1} M",
+                trump_char,
+                result,
+                elapsed.as_secs_f64(),
+                nodes as f64 / 1_000_000.0
+            );
+        } else {
+            // Multiple leaders - show results in W N E S order on one line
+            let mut results = Vec::new();
+            let mut total_time = 0.0;
+            let mut total_nodes = 0u64;
+
+            for &l in &leaders {
+                let start = Instant::now();
+                let solver = Solver::new(hands, t, l);
+                let result = solver.solve();
+                let elapsed = start.elapsed();
+                let nodes = get_node_count();
+                results.push(result);
+                total_time += elapsed.as_secs_f64();
+                total_nodes += nodes;
+            }
+
+            println!(
+                "{}  {}  {}  {}  {}  {:.2} s {:.1} M",
+                trump_char,
+                results[0],
+                results[1],
+                results[2],
+                results[3],
+                total_time,
+                total_nodes as f64 / 1_000_000.0
+            );
+        }
+    }
+}
+
+/// Parse the West/East line which has both hands separated by 2+ spaces
+fn parse_west_east(line: &str) -> (String, String) {
+    // Find the first run of 2+ spaces (the separator between West and East)
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b' ' {
+            let start = i;
+            while i < bytes.len() && bytes[i] == b' ' {
+                i += 1;
+            }
+            // If we found 2+ spaces, split here
+            if i - start >= 2 {
+                let west = line[..start].trim().to_string();
+                let east = line[i..].trim().to_string();
+                return (west, east);
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    // Fallback: try splitting by tab
+    let trimmed = line.trim();
+    if let Some(pos) = trimmed.find('\t') {
+        let west = trimmed[..pos].trim().to_string();
+        let east = trimmed[pos..].trim().to_string();
+        (west, east)
+    } else {
+        // Last resort: split by whitespace and divide in half
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        let mid = tokens.len() / 2;
+        let west = tokens[0..mid].join(" ");
+        let east = tokens[mid..].join(" ");
+        (west, east)
+    }
+}
+
+fn parse_trump(c: char) -> usize {
+    match c.to_ascii_uppercase() {
+        'N' => NOTRUMP,
+        'S' => SPADE,
+        'H' => HEART,
+        'D' => DIAMOND,
+        'C' => CLUB,
+        _ => panic!("Invalid trump: {}", c),
+    }
+}
+
+fn parse_seat(c: char) -> usize {
+    match c.to_ascii_uppercase() {
+        'W' => WEST,
+        'N' => NORTH,
+        'E' => EAST,
+        'S' => SOUTH,
+        _ => panic!("Invalid seat: {}", c),
+    }
+}
+
+fn trump_to_char(trump: usize) -> char {
+    match trump {
+        NOTRUMP => 'N',
+        SPADE => 'S',
+        HEART => 'H',
+        DIAMOND => 'D',
+        CLUB => 'C',
+        _ => '?',
+    }
+}
+
+fn print_hand_diagram(hands: &Hands) {
+    // Get string representations of each hand
+    let n = format_hand_with_suits(hands.hand(NORTH));
+    let w = format_hand_with_suits(hands.hand(WEST));
+    let e = format_hand_with_suits(hands.hand(EAST));
+    let s = format_hand_with_suits(hands.hand(SOUTH));
+
+    // Print in diagram format with Unicode suit symbols
+    println!("                          {}", n);
+    println!("       {}                  {}", w, e);
+    println!("                          {}", s);
+}
+
+fn format_hand_with_suits(cards: dealer_dds::solver2::Cards) -> String {
+    use dealer_dds::solver2::{CLUB, DIAMOND, HEART, SPADE};
+
+    let mut parts = Vec::new();
+
+    for (suit, symbol) in [(SPADE, "\u{2660}"), (HEART, "\u{2665}"), (DIAMOND, "\u{2666}"), (CLUB, "\u{2663}")] {
+        let suit_cards = cards.suit(suit);
+        let suit_str = format_suit_cards(suit_cards, suit);
+        parts.push(format!("{} {}", symbol, suit_str));
+    }
+
+    parts.join(" ")
+}
+
+fn format_suit_cards(cards: dealer_dds::solver2::Cards, suit: usize) -> String {
+    use dealer_dds::solver2::types::{rank_name, NUM_RANKS};
+    use dealer_dds::solver2::cards::card_of;
+
+    let mut s = String::new();
+    // Iterate from Ace down to 2
+    for rank in (0..NUM_RANKS).rev() {
+        if cards.have(card_of(suit, rank)) {
+            s.push(rank_name(rank));
+        }
+    }
+    if s.is_empty() {
+        s.push('-');
+    }
+    s
+}

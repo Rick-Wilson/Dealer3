@@ -1,8 +1,9 @@
 [package]
-name = "dealer-dds"
+name = "bridge-solver"
 version = "0.1.0"
 edition = "2021"
 license = "Unlicense"
+description = "Bridge Double-Dummy Solver - Port of macroxue/bridge-solver"
 
 [features]
 debug_mtdf = []
@@ -13,5 +14,3 @@ no_fast_tricks = []
 no_slow_tricks = []
 
 [dependencies]
-dealer-core = { path = "../dealer-core" }
-bridge-solver = { path = "../bridge-solver" }
