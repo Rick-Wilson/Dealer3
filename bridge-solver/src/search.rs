@@ -13,7 +13,7 @@ use super::types::*;
 use std::sync::atomic::Ordering;
 
 // Re-export atomic counters from bridge_solver module
-use super::bridge_solver::{NODE_COUNT, XRAY_COUNT, XRAY_LIMIT, NO_PRUNING, NO_TT, NO_RANK_SKIP};
+use super::bridge_solver::{NODE_COUNT, XRAY_COUNT, XRAY_LIMIT, NO_PRUNING, NO_TT, NO_RANK_SKIP, xray_should_log};
 
 /// Search result - NS tricks and rank winners (cards whose rank affected the outcome)
 #[derive(Clone, Copy, Default)]
@@ -303,6 +303,15 @@ impl<'a> Search<'a> {
         let trick_idx = depth / 4;
         let card_in_trick = depth & 3;
 
+        // XRAY counter - increment on EVERY recursive call (not just trick boundaries)
+        let limit = XRAY_LIMIT.load(Ordering::Relaxed);
+        if limit > 0 {
+            let count = XRAY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            if count == limit + 1 {
+                eprintln!("XRAY_LIMIT_REACHED: {} iterations", limit);
+            }
+        }
+
         // Mid-trick: get state from previous play
         if card_in_trick != 0 {
             let prev_ns_tricks = self.plays[depth - 1].ns_tricks_won;
@@ -331,43 +340,40 @@ impl<'a> Search<'a> {
         let ns_tricks_won = self.plays[depth].ns_tricks_won;
         let seat_to_play = self.plays[depth].seat_to_play;
 
-        // XRAY tracing (only at trick boundaries, matching C++)
-        let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-        if limit > 0 {
-            let count = XRAY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-            if count <= limit {
-                let seat_name = match seat_to_play {
-                    WEST => "West",
-                    NORTH => "North",
-                    EAST => "East",
-                    SOUTH => "South",
-                    _ => "?",
-                };
-                eprintln!(
-                    "XRAY {}: depth={} seat={} beta={} ns_tricks_won={}",
-                    count, depth, seat_name, beta, ns_tricks_won
-                );
-                // Log hands at trick start
-                eprintln!(
-                    "HANDS: W={:x} N={:x} E={:x} S={:x}",
-                    self.hands[WEST].value(),
-                    self.hands[NORTH].value(),
-                    self.hands[EAST].value(),
-                    self.hands[SOUTH].value()
-                );
-                // Log cards played so far
-                if depth > 0 {
-                    let mut play_str = String::new();
-                    for d in 0..depth {
-                        if d > 0 && d % 4 == 0 {
-                            play_str.push_str(" | ");
-                        } else if d > 0 {
-                            play_str.push(' ');
-                        }
-                        play_str.push_str(&card_name(self.plays[d].card_played));
+        // XRAY detailed logging (at trick boundaries only, for readability)
+        if xray_should_log() && card_in_trick == 0 {
+            let count = XRAY_COUNT.load(Ordering::Relaxed);
+            let seat_name = match seat_to_play {
+                WEST => "West",
+                NORTH => "North",
+                EAST => "East",
+                SOUTH => "South",
+                _ => "?",
+            };
+            eprintln!(
+                "XRAY {}: depth={} seat={} beta={} ns_tricks_won={}",
+                count, depth, seat_name, beta, ns_tricks_won
+            );
+            // Log hands at trick start
+            eprintln!(
+                "HANDS: W={:x} N={:x} E={:x} S={:x}",
+                self.hands[WEST].value(),
+                self.hands[NORTH].value(),
+                self.hands[EAST].value(),
+                self.hands[SOUTH].value()
+            );
+            // Log cards played so far
+            if depth > 0 {
+                let mut play_str = String::new();
+                for d in 0..depth {
+                    if d > 0 && d % 4 == 0 {
+                        play_str.push_str(" | ");
+                    } else if d > 0 {
+                        play_str.push(' ');
                     }
-                    eprintln!("PLAY: {}", play_str);
+                    play_str.push_str(&card_name(self.plays[d].card_played));
                 }
+                eprintln!("PLAY: {}", play_str);
             }
         }
 
@@ -488,8 +494,7 @@ impl<'a> Search<'a> {
             let fast = self.fast_tricks(depth);
 
             // Debug logging for fast tricks
-            let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-            if limit > 0 {
+            if xray_should_log() {
                 eprintln!(
                     "FAST_TRICKS: depth={} seat={} fast={} trump={}",
                     depth, seat_to_play, fast, self.trump
@@ -524,8 +529,7 @@ impl<'a> Search<'a> {
             };
 
             // Debug logging for slow tricks
-            let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-            if limit > 0 {
+            if xray_should_log() {
                 eprintln!(
                     "SLOW_TRICKS: depth={} seat={} slow={} trump={}",
                     depth, seat_to_play, slow, self.trump
@@ -554,7 +558,6 @@ impl<'a> Search<'a> {
     /// Matches C++ Play::EvaluatePlayableCards
     fn evaluate_playable_cards(&mut self, depth: usize, beta: i8) -> SearchResult {
         NODE_COUNT.fetch_add(1, Ordering::Relaxed);
-        eprintln!("EVAL_PLAYABLE: depth={} beta={}", depth, beta);
 
         let trick_idx = depth / 4;
         let card_in_trick = depth & 3;
@@ -575,15 +578,11 @@ impl<'a> Search<'a> {
         }
 
         // XRAY logging for playable cards
-        let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-        if limit > 0 {
-            let count = XRAY_COUNT.load(Ordering::Relaxed);
-            if count <= limit {
-                eprintln!(
-                    "PLAYABLE: depth={} seat={} count={} cards={:x}",
-                    depth, seat_to_play, playable.size(), playable.value()
-                );
-            }
+        if xray_should_log() {
+            eprintln!(
+                "PLAYABLE: depth={} seat={} count={} cards={:x}",
+                depth, seat_to_play, playable.size(), playable.value()
+            );
         }
 
         // Note: Even for single card, we go through the loop to ensure cutoff checks happen.
@@ -620,25 +619,21 @@ impl<'a> Search<'a> {
         };
 
         // MOVE_ORDER logging BEFORE update
-        let limit = XRAY_LIMIT.load(Ordering::Relaxed);
         let iter_count = NODE_COUNT.load(Ordering::Relaxed);
-        if limit > 0 {
-            let xray_count = XRAY_COUNT.load(Ordering::Relaxed);
-            if xray_count <= limit {
-                let mut playable_str = String::new();
-                for card in playable.iter() {
-                    if !playable_str.is_empty() { playable_str.push(' '); }
-                    playable_str.push_str(&card_name(card));
-                }
-                let cutoff_str = match cutoff_card {
-                    Some(cc) if playable.have(cc) => card_name(cc),
-                    _ => String::new(),
-                };
-                eprintln!(
-                    "MOVE_ORDER_BEFORE: iter={} depth={} play=[{}] playable=[{}] cutoff_cards=[{}]",
-                    iter_count, depth, self.format_play_sequence(depth), playable_str, cutoff_str
-                );
+        if xray_should_log() {
+            let mut playable_str = String::new();
+            for card in playable.iter() {
+                if !playable_str.is_empty() { playable_str.push(' '); }
+                playable_str.push_str(&card_name(card));
             }
+            let cutoff_str = match cutoff_card {
+                Some(cc) if playable.have(cc) => card_name(cc),
+                _ => String::new(),
+            };
+            eprintln!(
+                "MOVE_ORDER_BEFORE: iter={} depth={} play=[{}] playable=[{}] cutoff_cards=[{}]",
+                iter_count, depth, self.format_play_sequence(depth), playable_str, cutoff_str
+            );
         }
 
         let mut remaining_playable = playable;
@@ -653,24 +648,21 @@ impl<'a> Search<'a> {
         Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
 
         // MOVE_ORDER logging AFTER update
-        if limit > 0 {
-            let xray_count = XRAY_COUNT.load(Ordering::Relaxed);
-            if xray_count <= limit {
-                let mut ordered_str = String::new();
-                for i in 0..ordered_cards.len() {
-                    if !ordered_str.is_empty() { ordered_str.push(' '); }
-                    ordered_str.push_str(&card_name(ordered_cards.card(i)));
-                }
-                let mut remaining_str = String::new();
-                for card in remaining_playable.iter() {
-                    if !remaining_str.is_empty() { remaining_str.push(' '); }
-                    remaining_str.push_str(&card_name(card));
-                }
-                eprintln!(
-                    "MOVE_ORDER_AFTER: iter={} depth={} ordered=[{}] remaining=[{}]",
-                    iter_count, depth, ordered_str, remaining_str
-                );
+        if xray_should_log() {
+            let mut ordered_str = String::new();
+            for i in 0..ordered_cards.len() {
+                if !ordered_str.is_empty() { ordered_str.push(' '); }
+                ordered_str.push_str(&card_name(ordered_cards.card(i)));
             }
+            let mut remaining_str = String::new();
+            for card in remaining_playable.iter() {
+                if !remaining_str.is_empty() { remaining_str.push(' '); }
+                remaining_str.push_str(&card_name(card));
+            }
+            eprintln!(
+                "MOVE_ORDER_AFTER: iter={} depth={} ordered=[{}] remaining=[{}]",
+                iter_count, depth, ordered_str, remaining_str
+            );
         }
 
         #[cfg(feature = "debug_search")]
@@ -684,20 +676,16 @@ impl<'a> Search<'a> {
         }
 
         // XRAY logging for ordered cards
-        let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-        if limit > 0 {
-            let count = XRAY_COUNT.load(Ordering::Relaxed);
-            if count <= limit {
-                let mut cards_str = String::new();
-                for i in 0..ordered_cards.len() {
-                    if i > 0 { cards_str.push(' '); }
-                    cards_str.push_str(&card_name(ordered_cards.card(i)));
-                }
-                eprintln!(
-                    "ORDERED: depth={} playable={:x} count={} cards=[{}]",
-                    depth, playable.value(), ordered_cards.len(), cards_str
-                );
+        if xray_should_log() {
+            let mut cards_str = String::new();
+            for i in 0..ordered_cards.len() {
+                if i > 0 { cards_str.push(' '); }
+                cards_str.push_str(&card_name(ordered_cards.card(i)));
             }
+            eprintln!(
+                "ORDERED: depth={} playable={:x} count={} cards=[{}]",
+                depth, playable.value(), ordered_cards.len(), cards_str
+            );
         }
 
         // Get my_hand for equivalence checks (all_cards already computed above)
@@ -735,15 +723,11 @@ impl<'a> Search<'a> {
             let branch_rank_winners = branch_result.rank_winners;
 
             // XRAY logging for score
-            let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-            if limit > 0 {
-                let count = XRAY_COUNT.load(Ordering::Relaxed);
-                if count <= limit {
-                    eprintln!(
-                        "SCORE: depth={} card={} score={} best={} beta={} maximizing={} rank_winners={:x} play=[{}]",
-                        depth, card_name(card), score, best, beta, maximizing, branch_rank_winners.value(), self.format_play_sequence(depth)
-                    );
-                }
+            if xray_should_log() {
+                eprintln!(
+                    "SCORE: depth={} card={} score={} best={} beta={} maximizing={} rank_winners={:x} play=[{}]",
+                    depth, card_name(card), score, best, beta, maximizing, branch_rank_winners.value(), self.format_play_sequence(depth)
+                );
             }
 
             if maximizing {
@@ -752,15 +736,11 @@ impl<'a> Search<'a> {
                 }
                 if best as i8 >= beta {
                     // XRAY logging for cutoff
-                    let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-                    if limit > 0 {
-                        let count = XRAY_COUNT.load(Ordering::Relaxed);
-                        if count <= limit {
-                            eprintln!(
-                                "CUTOFF: depth={} seat={} card={} score={} best={} beta={} maximizing=true play=[{}]",
-                                depth, seat_to_play, card_name(card), score, best, beta, self.format_play_sequence(depth)
-                            );
-                        }
+                    if xray_should_log() {
+                        eprintln!(
+                            "CUTOFF: depth={} seat={} card={} score={} best={} beta={} maximizing=true play=[{}]",
+                            depth, seat_to_play, card_name(card), score, best, beta, self.format_play_sequence(depth)
+                        );
                     }
                     // Store cutoff card
                     if cutoff_card != Some(card) && !NO_TT.load(Ordering::Relaxed) {
@@ -774,15 +754,11 @@ impl<'a> Search<'a> {
                 }
                 if (best as i8) < beta {
                     // XRAY logging for cutoff
-                    let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-                    if limit > 0 {
-                        let count = XRAY_COUNT.load(Ordering::Relaxed);
-                        if count <= limit {
-                            eprintln!(
-                                "CUTOFF: depth={} seat={} card={} score={} best={} beta={} maximizing=false play=[{}]",
-                                depth, seat_to_play, card_name(card), score, best, beta, self.format_play_sequence(depth)
-                            );
-                        }
+                    if xray_should_log() {
+                        eprintln!(
+                            "CUTOFF: depth={} seat={} card={} score={} best={} beta={} maximizing=false play=[{}]",
+                            depth, seat_to_play, card_name(card), score, best, beta, self.format_play_sequence(depth)
+                        );
                     }
                     // Store cutoff card (for minimizer, cutoff is when score < beta)
                     if cutoff_card != Some(card) && !NO_TT.load(Ordering::Relaxed) {
@@ -812,22 +788,16 @@ impl<'a> Search<'a> {
             }
 
             // RANK_UPDATE logging
-            if min_relevant_ranks[suit] != old_min {
-                let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-                if limit > 0 {
-                    let xray_count = XRAY_COUNT.load(Ordering::Relaxed);
-                    if xray_count <= limit {
-                        let winner_str = if suit_rank_winners.is_empty() {
-                            "none".to_string()
-                        } else {
-                            card_name(suit_rank_winners.bottom())
-                        };
-                        eprintln!(
-                            "RANK_UPDATE: depth={} card={} suit={} old_min={} new_min={} suit_rank_winners={} play=[{}]",
-                            depth, card_name(card), suit, old_min, min_relevant_ranks[suit], winner_str, self.format_play_sequence(depth)
-                        );
-                    }
-                }
+            if min_relevant_ranks[suit] != old_min && xray_should_log() {
+                let winner_str = if suit_rank_winners.is_empty() {
+                    "none".to_string()
+                } else {
+                    card_name(suit_rank_winners.bottom())
+                };
+                eprintln!(
+                    "RANK_UPDATE: depth={} card={} suit={} old_min={} new_min={} suit_rank_winners={} play=[{}]",
+                    depth, card_name(card), suit, old_min, min_relevant_ranks[suit], winner_str, self.format_play_sequence(depth)
+                );
             }
         }
 
@@ -967,7 +937,7 @@ impl<'a> Search<'a> {
         }
 
         // EQUIV logging
-        if XRAY_LIMIT.load(Ordering::Relaxed) > 0 {
+        if xray_should_log() {
             let suit = suit_of(card);
             let all_suit = all_cards.suit(suit);
             let my_suit = my_hand.suit(suit);
@@ -1269,9 +1239,8 @@ impl<'a> Search<'a> {
         let tricks = self.fast_tricks_from_seat(seat_to_play, all_cards);
         let result = tricks.min(max_tricks);
 
-        // Debug logging - always log when XRAY is enabled
-        let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-        if limit > 0 {
+        // Debug logging when XRAY is enabled and under limit
+        if xray_should_log() {
             eprintln!(
                 "FAST_TRICKS: depth={} seat={} raw={} capped={} trump={}",
                 depth, seat_to_play, tricks, result, self.trump

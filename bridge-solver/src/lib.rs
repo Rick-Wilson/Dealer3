@@ -23,7 +23,7 @@ pub use hands::Hands;
 pub use types::{Seat, Suit, NOTRUMP, NUM_SEATS, NUM_SUITS, NUM_RANKS, TOTAL_CARDS, TOTAL_TRICKS};
 pub use types::{SPADE, HEART, DIAMOND, CLUB};
 pub use types::{WEST, NORTH, EAST, SOUTH};
-pub use bridge_solver::{Solver, get_node_count, set_xray_limit, set_no_pruning, set_no_tt, set_no_rank_skip, order_leads, order_follows, OrderedCards};
+pub use bridge_solver::{Solver, get_node_count, set_xray_limit, set_no_pruning, set_no_tt, set_no_rank_skip, set_show_perf, order_leads, order_follows, OrderedCards};
 pub use search::slow_trump_tricks_opponent;
 
 #[cfg(test)]

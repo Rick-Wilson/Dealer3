@@ -4,135 +4,8 @@
 
 use super::cards::*;
 use super::hands::Hands;
-use super::play::*;
 use super::search;
 use super::types::*;
-
-/// Transposition table entry - stores bounds for a position
-#[derive(Clone, Copy, Default)]
-struct TTEntry {
-    hash: u64,
-    lower: i8,
-    upper: i8,
-}
-
-/// Simple transposition table - fixed size, no allocation during search
-struct TransTable {
-    entries: Box<[TTEntry]>,
-    mask: usize,
-}
-
-impl TransTable {
-    fn new(bits: usize) -> Self {
-        let size = 1 << bits;
-        TransTable {
-            entries: vec![TTEntry::default(); size].into_boxed_slice(),
-            mask: size - 1,
-        }
-    }
-
-    #[inline]
-    fn index(&self, hash: u64) -> usize {
-        (hash as usize) & self.mask
-    }
-
-    #[inline]
-    fn lookup(&self, hash: u64) -> Option<(i8, i8)> {
-        let entry = &self.entries[self.index(hash)];
-        if entry.hash == hash {
-            Some((entry.lower, entry.upper))
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    fn store(&mut self, hash: u64, lower: i8, upper: i8) {
-        let idx = self.index(hash);
-        let entry = &mut self.entries[idx];
-        // Always replace - simple strategy
-        entry.hash = hash;
-        entry.lower = lower;
-        entry.upper = upper;
-    }
-}
-
-/// Hash constants for position hashing
-const HASH_RAND: [u64; 4] = [
-    0x9b8b4567327b23c7,
-    0x643c986966334873,
-    0x74b0dc5119495cff,
-    0x625558ec2ae8944a,
-];
-
-/// Cutoff cache entry - stores the card that caused a cutoff for each seat
-#[derive(Clone, Copy, Default)]
-struct CutoffEntry {
-    hash: u64,
-    card: [u8; 4], // One card per seat, 255 = no card
-}
-
-/// Cutoff cache - remembers which cards caused cutoffs at similar positions
-struct CutoffCache {
-    entries: Box<[CutoffEntry]>,
-    mask: usize,
-}
-
-impl CutoffCache {
-    fn new(bits: usize) -> Self {
-        let size = 1 << bits;
-        let default_entry = CutoffEntry {
-            hash: 0,
-            card: [255, 255, 255, 255],
-        };
-        CutoffCache {
-            entries: vec![default_entry; size].into_boxed_slice(),
-            mask: size - 1,
-        }
-    }
-
-    #[inline]
-    fn index(&self, hash: u64) -> usize {
-        (hash as usize) & self.mask
-    }
-
-    /// Look up a cutoff card for the given position and seat
-    #[inline]
-    fn lookup(&self, hash: u64, seat: Seat) -> Option<usize> {
-        let entry = &self.entries[self.index(hash)];
-        if entry.hash == hash && entry.card[seat] != 255 {
-            Some(entry.card[seat] as usize)
-        } else {
-            None
-        }
-    }
-
-    /// Store a cutoff card for the given position and seat
-    #[inline]
-    fn store(&mut self, hash: u64, seat: Seat, card: usize) {
-        let idx = self.index(hash);
-        let entry = &mut self.entries[idx];
-        if entry.hash != hash {
-            // New position - reset all seats
-            entry.hash = hash;
-            entry.card = [255, 255, 255, 255];
-        }
-        entry.card[seat] = card as u8;
-    }
-}
-
-/// Compute hash for a position (hands + seat to play)
-#[inline]
-fn hash_position(hands: &Hands, seat_to_play: Seat) -> u64 {
-    // Hash based on the cards in each hand - must include ALL 4 hands!
-    let h0 = hands[0].value().wrapping_add(HASH_RAND[0]);
-    let h1 = hands[1].value().wrapping_add(HASH_RAND[1]);
-    let h2 = hands[2].value().wrapping_add(HASH_RAND[2]);
-    let h3 = hands[3].value().wrapping_add(HASH_RAND[3]);
-    // Include seat_to_play in the hash
-    let seat_hash = (seat_to_play as u64).wrapping_mul(0x517cc1b727220a95);
-    h0.wrapping_mul(h1).wrapping_add(h2.wrapping_mul(h3)).wrapping_add(seat_hash)
-}
 
 /// Ordered cards container for move ordering
 pub struct OrderedCards {
@@ -254,8 +127,8 @@ fn is_equivalent(card: usize, tried_cards: Cards, all_cards: Cards, my_hand: Car
         }
     }
 
-    // Log if xray tracing is enabled
-    if XRAY_LIMIT.load(Ordering::Relaxed) > 0 {
+    // Log if xray tracing is enabled and under limit
+    if xray_should_log() {
         let suit = suit_of(card);
         let tried_suit = tried_cards.suit(suit);
         let my_suit = my_hand.suit(suit);
@@ -616,6 +489,7 @@ pub(crate) static XRAY_LIMIT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static NO_PRUNING: AtomicBool = AtomicBool::new(false);
 pub(crate) static NO_TT: AtomicBool = AtomicBool::new(false);
 pub(crate) static NO_RANK_SKIP: AtomicBool = AtomicBool::new(false);
+pub(crate) static SHOW_PERF: AtomicBool = AtomicBool::new(false);
 
 /// Get the node count from the last solve (for profiling)
 pub fn get_node_count() -> u64 {
@@ -633,6 +507,12 @@ pub fn xray_enabled() -> bool {
     XRAY_LIMIT.load(Ordering::Relaxed) > 0
 }
 
+/// Check if xray logging should occur (enabled and under limit)
+pub(crate) fn xray_should_log() -> bool {
+    let limit = XRAY_LIMIT.load(Ordering::Relaxed);
+    limit > 0 && XRAY_COUNT.load(Ordering::Relaxed) <= limit
+}
+
 /// Set no-pruning mode (disables fast/slow tricks pruning for debugging)
 pub fn set_no_pruning(enabled: bool) {
     NO_PRUNING.store(enabled, Ordering::Relaxed);
@@ -646,6 +526,11 @@ pub fn set_no_tt(enabled: bool) {
 /// Set no-rank-skip mode (disables min_relevant_ranks optimization for debugging)
 pub fn set_no_rank_skip(enabled: bool) {
     NO_RANK_SKIP.store(enabled, Ordering::Relaxed);
+}
+
+/// Set show-perf mode (outputs [PERF] lines to stderr after each solve)
+pub fn set_show_perf(enabled: bool) {
+    SHOW_PERF.store(enabled, Ordering::Relaxed);
 }
 
 impl Solver {
@@ -663,45 +548,27 @@ impl Solver {
     /// Solve and return NS tricks
     pub fn solve(&self) -> u8 {
         NODE_COUNT.store(0, Ordering::Relaxed);
-        let start = std::time::Instant::now();
-        let num_tricks = self.num_tricks;
-        let guess = self.guess_tricks();
-        let result = self.mtdf_search(num_tricks, guess);
-        let elapsed = start.elapsed();
-        let iterations = NODE_COUNT.load(Ordering::Relaxed);
-        let ns_per_iter = if iterations > 0 {
-            elapsed.as_nanos() as f64 / iterations as f64
-        } else {
-            0.0
-        };
-        eprintln!("[PERF] iterations={}, time={:.3}s, ns/iter={:.1}",
-                  iterations, elapsed.as_secs_f64(), ns_per_iter);
-        result
-    }
-
-    /// Solve using the new refactored search structure (v2)
-    /// This uses the 3-layer structure matching C++
-    pub fn solve_v2(&self) -> u8 {
-        NODE_COUNT.store(0, Ordering::Relaxed);
         XRAY_COUNT.store(0, Ordering::Relaxed);
         let start = std::time::Instant::now();
         let num_tricks = self.num_tricks;
         let guess = self.guess_tricks();
-        let result = self.mtdf_search_v2(num_tricks, guess);
-        let elapsed = start.elapsed();
-        let iterations = NODE_COUNT.load(Ordering::Relaxed);
-        let ns_per_iter = if iterations > 0 {
-            elapsed.as_nanos() as f64 / iterations as f64
-        } else {
-            0.0
-        };
-        eprintln!("[PERF v2] iterations={}, time={:.3}s, ns/iter={:.1}",
-                  iterations, elapsed.as_secs_f64(), ns_per_iter);
+        let result = self.mtdf_search(num_tricks, guess);
+        if SHOW_PERF.load(Ordering::Relaxed) {
+            let elapsed = start.elapsed();
+            let iterations = NODE_COUNT.load(Ordering::Relaxed);
+            let ns_per_iter = if iterations > 0 {
+                elapsed.as_nanos() as f64 / iterations as f64
+            } else {
+                0.0
+            };
+            eprintln!("[PERF] iterations={}, time={:.3}s, ns/iter={:.1}",
+                      iterations, elapsed.as_secs_f64(), ns_per_iter);
+        }
         result
     }
 
-    /// MTD(f) search driver using new structure
-    fn mtdf_search_v2(&self, num_tricks: usize, guess: usize) -> u8 {
+    /// MTD(f) search driver
+    fn mtdf_search(&self, num_tricks: usize, guess: usize) -> u8 {
         let mut cutoff_cache = search::CutoffCache::new(16);
         let mut pattern_cache = super::pattern::PatternCache::new(16);
         let mut hands = self.hands;
@@ -734,494 +601,6 @@ impl Solver {
         }
 
         lower as u8
-    }
-
-    /// MTD(f) search driver
-    fn mtdf_search(&self, num_tricks: usize, guess: usize) -> u8 {
-        // Create transposition table (16 bits = 65536 entries)
-        let mut tt = TransTable::new(16);
-        // Create cutoff cache (16 bits = 65536 entries)
-        let mut cutoff_cache = CutoffCache::new(16);
-
-        let mut lower = 0i8;
-        let mut upper = num_tricks as i8;
-        let mut ns_tricks = guess as i8;
-
-        #[cfg(feature = "debug_mtdf")]
-        eprintln!("MTD(f): num_tricks={}, guess={}", num_tricks, guess);
-
-        while lower < upper {
-            let beta = if ns_tricks == lower {
-                ns_tricks + 1
-            } else {
-                ns_tricks
-            };
-
-            #[cfg(feature = "debug_mtdf")]
-            eprintln!("  iteration: lower={}, upper={}, beta={}", lower, upper, beta);
-
-            ns_tricks = self.alpha_beta_search(beta, &mut tt, &mut cutoff_cache) as i8;
-
-            #[cfg(feature = "debug_mtdf")]
-            eprintln!("  search returned: {}", ns_tricks);
-
-            if ns_tricks < beta {
-                upper = ns_tricks;
-            } else {
-                lower = ns_tricks;
-            }
-        }
-
-        #[cfg(feature = "debug_mtdf")]
-        eprintln!("  final: {}", lower);
-
-        lower as u8
-    }
-
-    /// Alpha-beta search with the given beta value (null-window search)
-    fn alpha_beta_search(&self, beta: i8, tt: &mut TransTable, cutoff_cache: &mut CutoffCache) -> u8 {
-        let mut hands = self.hands;
-
-        // State for the search:
-        // - cards_played[i] = card played at depth i
-        // - seats[i] = seat that played at depth i
-        // - trick_all_cards[i] = all remaining cards at the start of trick i
-        let mut cards_played = [0usize; TOTAL_CARDS];
-        let mut seats = [0usize; TOTAL_CARDS];
-        let mut lead_suits = [0usize; TOTAL_TRICKS];
-        let mut winning_card_idx = [0usize; TOTAL_TRICKS];
-        let mut trick_all_cards = [Cards::new(); TOTAL_TRICKS];
-
-        // MTD(f) uses null-window search: alpha = beta - 1
-        let alpha = beta - 1;
-
-        self.search_recursive(
-            &mut hands,
-            &mut cards_played,
-            &mut seats,
-            &mut lead_suits,
-            &mut winning_card_idx,
-            &mut trick_all_cards,
-            0,
-            0,
-            self.initial_leader,
-            alpha,
-            beta,
-            tt,
-            cutoff_cache,
-        )
-    }
-
-    /// Recursive search function
-    fn search_recursive(
-        &self,
-        hands: &mut Hands,
-        cards_played: &mut [usize; TOTAL_CARDS],
-        seats: &mut [usize; TOTAL_CARDS],
-        lead_suits: &mut [usize; TOTAL_TRICKS],
-        winning_card_idx: &mut [usize; TOTAL_TRICKS],
-        trick_all_cards: &mut [Cards; TOTAL_TRICKS],
-        depth: usize,
-        ns_tricks_won: u8,
-        seat_to_play: Seat,
-        alpha: i8,
-        beta: i8,
-        tt: &mut TransTable,
-        cutoff_cache: &mut CutoffCache,
-    ) -> u8 {
-        NODE_COUNT.fetch_add(1, Ordering::Relaxed);
-
-        let trick_idx = depth / 4;
-        let card_in_trick = depth & 3;
-        let num_tricks = self.num_tricks;
-
-        // X-ray tracing (only at trick boundaries to match C++)
-        if card_in_trick == 0 {
-            let limit = XRAY_LIMIT.load(Ordering::Relaxed);
-            if limit > 0 {
-                let count = XRAY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                if count <= limit {
-                    let seat_name = match seat_to_play {
-                        WEST => "West",
-                        NORTH => "North",
-                        EAST => "East",
-                        SOUTH => "South",
-                        _ => "?",
-                    };
-                    eprintln!(
-                        "XRAY {}: depth={} seat={} beta={} ns_tricks_won={}",
-                        count, depth, seat_name, beta, ns_tricks_won
-                    );
-                }
-            }
-        }
-
-        // Terminal check - all tricks played
-        if trick_idx >= num_tricks {
-            return ns_tricks_won;
-        }
-
-        // Quick bounds check
-        let remaining = num_tricks - trick_idx;
-        if ns_tricks_won as i8 >= beta {
-            #[cfg(feature = "debug_mtdf")]
-            if depth <= 4 { eprintln!("  depth {}: early return (ns_tricks_won={} >= beta={})", depth, ns_tricks_won, beta); }
-            return ns_tricks_won;
-        }
-        if (ns_tricks_won as usize + remaining) < beta as usize {
-            #[cfg(feature = "debug_mtdf")]
-            if depth <= 4 { eprintln!("  depth {}: early return (ns_tricks_won={} + remaining={} < beta={})", depth, ns_tricks_won, remaining, beta); }
-            // Return the maximum NS could possibly achieve (upper bound)
-            return ns_tricks_won + remaining as u8;
-        }
-
-        // At trick boundaries, try fast tricks estimation
-        let hash = if card_in_trick == 0 {
-            #[cfg(not(feature = "no_tricks_pruning"))]
-            if !NO_PRUNING.load(Ordering::Relaxed) {
-                // Fast tricks pruning - properly handles entries and blocking
-                let fast = self.fast_tricks(hands, seat_to_play, remaining);
-                if is_ns(seat_to_play) && ns_tricks_won as usize + fast >= beta as usize {
-                    return (ns_tricks_won as usize + fast) as u8;
-                }
-                if !is_ns(seat_to_play) && (ns_tricks_won as usize + remaining - fast) < beta as usize {
-                    return (ns_tricks_won as usize + remaining - fast) as u8;
-                }
-
-                // Slow tricks pruning for NT contracts only
-                if self.trump >= NOTRUMP {
-                    if is_ns(seat_to_play) {
-                        // NS is leading - check EW's slow tricks
-                        let slow_ew = self.slow_tricks_ew_nt(hands, seat_to_play);
-                        #[cfg(feature = "debug_mtdf")]
-                        if slow_ew > 0 && remaining >= 10 {
-                            eprintln!("  slow_ew: seat={}, slow={}, remaining={}", seat_to_play, slow_ew, remaining);
-                        }
-                        if slow_ew > 0 && (ns_tricks_won as usize + remaining - slow_ew) < beta as usize {
-                            return (ns_tricks_won as usize + remaining - slow_ew) as u8;
-                        }
-                    } else {
-                        // EW is leading - check NS's slow tricks
-                        let slow_ns = self.slow_tricks_ns_nt(hands, seat_to_play);
-                        if slow_ns > 0 && ns_tricks_won as usize + slow_ns >= beta as usize {
-                            return (ns_tricks_won as usize + slow_ns) as u8;
-                        }
-                    }
-                }
-            }
-
-            // Check transposition table
-            let h = hash_position(hands, seat_to_play);
-            if !NO_TT.load(Ordering::Relaxed) {
-                if let Some((cached_lower, cached_upper)) = tt.lookup(h) {
-                    let adj_lower = cached_lower + ns_tricks_won as i8;
-                    let adj_upper = cached_upper + ns_tricks_won as i8;
-                    #[cfg(feature = "debug_mtdf")]
-                    if depth <= 4 {
-                        eprintln!("  depth {}: TT hit! cached=({},{}), adj=({},{}), beta={}, ns_tricks_won={}",
-                            depth, cached_lower, cached_upper, adj_lower, adj_upper, beta, ns_tricks_won);
-                    }
-                    if adj_lower >= beta {
-                        #[cfg(feature = "debug_mtdf")]
-                        if depth <= 4 { eprintln!("  depth {}: TT lower cutoff, returning {}", depth, adj_lower); }
-                        return adj_lower as u8;
-                    }
-                    if adj_upper < beta {
-                        #[cfg(feature = "debug_mtdf")]
-                        if depth <= 4 { eprintln!("  depth {}: TT upper cutoff, returning {}", depth, adj_upper); }
-                        return adj_upper as u8;
-                    }
-                }
-            }
-            h
-        } else {
-            0
-        };
-
-        // Get playable cards
-        let lead_suit = if card_in_trick == 0 {
-            None
-        } else {
-            Some(lead_suits[trick_idx])
-        };
-        let playable = get_playable_cards(hands, seat_to_play, lead_suit);
-
-        if playable.is_empty() {
-            return ns_tricks_won;
-        }
-
-        // Single card - auto play without branching
-        if playable.size() == 1 {
-            let card = playable.top();
-            return self.play_card_and_continue(
-                hands, cards_played, seats, lead_suits, winning_card_idx, trick_all_cards,
-                depth, ns_tricks_won, seat_to_play, card, alpha, beta, tt, cutoff_cache,
-            );
-        }
-
-        // Search all moves with alpha-beta pruning
-        // Use equivalent card filtering: track tried cards and skip equivalent ones
-        let maximizing = is_ns(seat_to_play);
-        let mut best = if maximizing { 0u8 } else { num_tricks as u8 };
-        let mut current_alpha = alpha;
-        let mut current_beta = beta;
-        let mut tried_cards = Cards::new();
-        // At trick start, compute and store all_cards.
-        // At mid-trick positions, use the stored value from trick start.
-        // This matches C++ behavior where trick->all_cards is set once at trick start.
-        if card_in_trick == 0 {
-            trick_all_cards[trick_idx] = hands.all_cards();
-        }
-        let all_cards = trick_all_cards[trick_idx];
-        let my_hand = hands[seat_to_play];
-
-        // Check cutoff cache - if we have a cached cutoff card, try it first
-        let cutoff_hash = hash_position(hands, seat_to_play);
-        let first_card = if !NO_TT.load(Ordering::Relaxed) {
-            let cutoff_card = cutoff_cache.lookup(cutoff_hash, seat_to_play);
-            if let Some(cc) = cutoff_card {
-                if playable.have(cc) { Some(cc) } else { None }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        // Order moves for better alpha-beta cutoffs
-        let ordered = if card_in_trick == 0 {
-            // Leading a trick - use lead ordering heuristics
-            order_leads(playable, hands, seat_to_play, self.trump, all_cards)
-        } else {
-            // Following in a trick - use follow ordering
-            let winner_idx = winning_card_idx[trick_idx];
-            let winning_card = cards_played[winner_idx];
-            let winning_seat = seats[winner_idx];
-            order_follows(
-                playable,
-                hands,
-                seat_to_play,
-                self.trump,
-                lead_suits[trick_idx],
-                winning_seat,
-                winning_card,
-                card_in_trick,
-                |c1, c2| self.wins_over(c1, c2, lead_suits[trick_idx]),
-            )
-        };
-
-        #[cfg(feature = "debug_mtdf")]
-        if depth <= 1 {
-            eprintln!("  depth {}: seat={}, maximizing={}, best_init={}, alpha={}, beta={}",
-                depth, seat_to_play, maximizing, best, alpha, beta);
-        }
-
-        // If we have a cutoff card from cache, try it first
-        if let Some(first) = first_card {
-            tried_cards.add(first);
-            let score = self.play_card_and_continue(
-                hands, cards_played, seats, lead_suits, winning_card_idx, trick_all_cards,
-                depth, ns_tricks_won, seat_to_play, first, current_alpha, current_beta, tt, cutoff_cache,
-            );
-
-            if maximizing {
-                if score > best {
-                    best = score;
-                }
-                if best as i8 >= current_beta {
-                    if card_in_trick == 0 && hash != 0 && !NO_TT.load(Ordering::Relaxed) {
-                        tt.store(hash, (best - ns_tricks_won) as i8, remaining as i8);
-                    }
-                    return best;
-                }
-                if best as i8 > current_alpha {
-                    current_alpha = best as i8;
-                }
-            } else {
-                if score < best {
-                    best = score;
-                }
-                if (best as i8) <= current_alpha {
-                    if card_in_trick == 0 && hash != 0 && !NO_TT.load(Ordering::Relaxed) {
-                        tt.store(hash, 0, (best - ns_tricks_won) as i8);
-                    }
-                    return best;
-                }
-                if (best as i8) < current_beta {
-                    current_beta = best as i8;
-                }
-            }
-        }
-
-        for card in ordered.iter() {
-            // Skip the cutoff card if we already tried it
-            if first_card == Some(card) {
-                continue;
-            }
-            // Skip if this card is equivalent to an already-tried card
-            if is_equivalent(card, tried_cards, all_cards, my_hand) {
-                tried_cards.add(card);
-                continue;
-            }
-            tried_cards.add(card);
-            let score = self.play_card_and_continue(
-                hands, cards_played, seats, lead_suits, winning_card_idx, trick_all_cards,
-                depth, ns_tricks_won, seat_to_play, card, current_alpha, current_beta, tt, cutoff_cache,
-            );
-
-            #[cfg(feature = "debug_mtdf")]
-            if depth <= 1 {
-                eprintln!("  depth {}: tried card, score={}, best={}", depth, score, best);
-            }
-
-            if maximizing {
-                if score > best {
-                    best = score;
-                }
-                if best as i8 >= current_beta {
-                    // Store in TT at trick boundary
-                    if card_in_trick == 0 && hash != 0 && !NO_TT.load(Ordering::Relaxed) {
-                        tt.store(hash, (best - ns_tricks_won) as i8, remaining as i8);
-                    }
-                    // Store cutoff card in cache
-                    if !NO_TT.load(Ordering::Relaxed) {
-                        cutoff_cache.store(cutoff_hash, seat_to_play, card);
-                    }
-                    return best;
-                }
-                if best as i8 > current_alpha {
-                    current_alpha = best as i8;
-                }
-            } else {
-                if score < best {
-                    best = score;
-                }
-                if (best as i8) <= current_alpha {
-                    // Store in TT at trick boundary
-                    if card_in_trick == 0 && hash != 0 && !NO_TT.load(Ordering::Relaxed) {
-                        tt.store(hash, 0, (best - ns_tricks_won) as i8);
-                    }
-                    // Store cutoff card in cache
-                    if !NO_TT.load(Ordering::Relaxed) {
-                        cutoff_cache.store(cutoff_hash, seat_to_play, card);
-                    }
-                    return best;
-                }
-                if (best as i8) < current_beta {
-                    current_beta = best as i8;
-                }
-            }
-        }
-
-        // Store result in TT at trick boundary
-        // With null-window search (alpha = beta - 1):
-        // - If best < beta (fail low): we have an upper bound
-        // - If best >= beta (fail high): we have a lower bound
-        if card_in_trick == 0 && hash != 0 && !NO_TT.load(Ordering::Relaxed) {
-            let relative_tricks = (best - ns_tricks_won) as i8;
-            if (best as i8) < beta {
-                // Fail low - store upper bound
-                tt.store(hash, 0, relative_tricks);
-            } else {
-                // Fail high - store lower bound
-                tt.store(hash, relative_tricks, remaining as i8);
-            }
-        }
-
-        best
-    }
-
-    /// Play a card and continue search
-    fn play_card_and_continue(
-        &self,
-        hands: &mut Hands,
-        cards_played: &mut [usize; TOTAL_CARDS],
-        seats: &mut [usize; TOTAL_CARDS],
-        lead_suits: &mut [usize; TOTAL_TRICKS],
-        winning_card_idx: &mut [usize; TOTAL_TRICKS],
-        trick_all_cards: &mut [Cards; TOTAL_TRICKS],
-        depth: usize,
-        ns_tricks_won: u8,
-        seat_to_play: Seat,
-        card: usize,
-        alpha: i8,
-        beta: i8,
-        tt: &mut TransTable,
-        cutoff_cache: &mut CutoffCache,
-    ) -> u8 {
-        let trick_idx = depth / 4;
-        let card_in_trick = depth & 3;
-
-        // Record the play
-        cards_played[depth] = card;
-        seats[depth] = seat_to_play;
-
-        // Remove card from hand
-        hands[seat_to_play].remove(card);
-
-        // Handle trick state
-        let (next_ns_tricks, next_seat) = if card_in_trick == 0 {
-            // Leading a new trick
-            lead_suits[trick_idx] = suit_of(card);
-            winning_card_idx[trick_idx] = depth;
-            (ns_tricks_won, next_seat(seat_to_play))
-        } else {
-            // Following in a trick
-            let current_winner_idx = winning_card_idx[trick_idx];
-            let current_winner_card = cards_played[current_winner_idx];
-
-            // Check if this card beats the current winner
-            if self.wins_over(card, current_winner_card, lead_suits[trick_idx]) {
-                winning_card_idx[trick_idx] = depth;
-            }
-
-            if card_in_trick == 3 {
-                // Trick complete - determine winner and start next trick
-                let winner_idx = winning_card_idx[trick_idx];
-                let winner_seat = seats[winner_idx];
-                let ns_won = if is_ns(winner_seat) { 1 } else { 0 };
-                (ns_tricks_won + ns_won, winner_seat)
-            } else {
-                // Mid-trick
-                (ns_tricks_won, next_seat(seat_to_play))
-            }
-        };
-
-        // Recurse
-        let result = self.search_recursive(
-            hands, cards_played, seats, lead_suits, winning_card_idx, trick_all_cards,
-            depth + 1, next_ns_tricks, next_seat, alpha, beta, tt, cutoff_cache,
-        );
-
-        // Restore hand
-        hands[seat_to_play].add(card);
-
-        result
-    }
-
-    /// Check if card1 beats card2 given lead suit
-    #[inline]
-    fn wins_over(&self, c1: usize, c2: usize, _lead_suit: Suit) -> bool {
-        let s1 = suit_of(c1);
-        let s2 = suit_of(c2);
-
-        // Same suit - higher rank wins
-        if s1 == s2 {
-            return higher_rank(c1, c2);
-        }
-
-        // Trump beats non-trump
-        if self.trump < NOTRUMP {
-            if s1 == self.trump {
-                return true;
-            }
-            if s2 == self.trump {
-                return false;
-            }
-        }
-
-        // Different non-trump suits - c2 (already played) wins
-        false
     }
 
     /// Count fast tricks for a suit, properly handling entries and blocking.

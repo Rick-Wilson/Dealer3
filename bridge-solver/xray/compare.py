@@ -96,6 +96,11 @@ def parse_args():
         action="store_true",
         help="Disable min_relevant_ranks optimization in C++ (for debugging search paths)"
     )
+    parser.add_argument(
+        "--no-perf",
+        action="store_true",
+        help="Disable performance output (match upstream solver output exactly)"
+    )
     return parser.parse_args()
 
 
@@ -166,7 +171,7 @@ def create_temp_input(input_file: Path, leader: str | None, strain: str | None) 
     return Path(temp_path)
 
 
-def run_solver(solver_path: Path, input_file: Path, name: str, timeout: int, xray_iterations: int = 0, no_pruning: bool = False, no_tt: bool = False, no_rank_skip: bool = False) -> tuple[str, float, bool, list[str], list[str]]:
+def run_solver(solver_path: Path, input_file: Path, name: str, timeout: int, xray_iterations: int = 0, no_pruning: bool = False, no_tt: bool = False, no_rank_skip: bool = False, show_perf: bool = True) -> tuple[str, float, bool, list[str], list[str]]:
     """Run a solver and return (output, elapsed_time, timed_out, xray_lines, equiv_lines)."""
     import time
 
@@ -182,6 +187,8 @@ def run_solver(solver_path: Path, input_file: Path, name: str, timeout: int, xra
         cmd.append("-T")
     if no_rank_skip:
         cmd.append("-R")
+    if show_perf:
+        cmd.append("-V")
 
     start = time.time()
     timed_out = False
@@ -459,6 +466,7 @@ def write_comparison_report(
     no_tt: bool = False,
     no_rank_skip: bool = False,
     xray_iterations: int = 0,
+    show_perf: bool = True,
 ):
     """Write the comparison report."""
     report_path = run_folder / "comparison.md"
@@ -536,7 +544,9 @@ def write_comparison_report(
 
         rust_iters = comparison["rust_iterations"]
         cpp_iters = comparison["cpp_iterations"]
-        if cpp_iters > 0:
+        if not show_perf:
+            f.write(f"| Iterations | N/A | N/A | N/A |\n")
+        elif cpp_iters > 0:
             f.write(f"| Iterations | {rust_iters:,} | {cpp_iters:,} | {rust_iters/cpp_iters:.1f}x |\n")
         else:
             f.write(f"| Iterations | {rust_iters:,} | {cpp_iters:,} | N/A |\n")
@@ -587,17 +597,12 @@ def main():
         print(f"  cd {WORKSPACE_DIR} && cargo build --bin solver --release")
         sys.exit(1)
 
-    # Use xray solver if xray tracing is requested
-    cpp_solver = CPP_SOLVER_XRAY if args.xray > 0 else CPP_SOLVER
+    # Always use xray solver (supports -V for perf output)
+    cpp_solver = CPP_SOLVER_XRAY
     if not cpp_solver.exists():
-        if args.xray > 0:
-            print(f"C++ xray solver not found at {cpp_solver}")
-            print("Build it with:")
-            print(f"  cd {CPP_SOLVER_XRAY_REPO}/xray && make")
-        else:
-            print(f"C++ solver not found at {cpp_solver}")
-            print("Build it with:")
-            print(f"  cd {CPP_SOLVER_UPSTREAM_REPO} && make")
+        print(f"C++ xray solver not found at {cpp_solver}")
+        print("Build it with:")
+        print(f"  cd {CPP_SOLVER_XRAY_REPO}/xray && make")
         sys.exit(1)
 
     # Create temp input file
@@ -626,9 +631,10 @@ def main():
         print()
 
         # Run Rust solver
+        show_perf = not args.no_perf
         print("Running Rust solver...")
         rust_output, rust_time, rust_timeout, rust_xray, rust_equiv = run_solver(
-            RUST_SOLVER, temp_input, "rust", args.timeout, args.xray, args.no_pruning, args.no_tt, args.no_rank_skip
+            RUST_SOLVER, temp_input, "rust", args.timeout, args.xray, args.no_pruning, args.no_tt, args.no_rank_skip, show_perf=show_perf
         )
         with open(run_folder / "rust_output.txt", "w") as f:
             f.write(rust_output)
@@ -640,7 +646,7 @@ def main():
         # Run C++ solver
         print("Running C++ solver...")
         cpp_output, cpp_time, cpp_timeout, cpp_xray, cpp_equiv = run_solver(
-            cpp_solver, temp_input, "cpp", args.timeout, args.xray, args.no_pruning, args.no_tt, args.no_rank_skip
+            cpp_solver, temp_input, "cpp", args.timeout, args.xray, args.no_pruning, args.no_tt, args.no_rank_skip, show_perf=show_perf
         )
         with open(run_folder / "cpp_output.txt", "w") as f:
             f.write(cpp_output)
@@ -687,6 +693,7 @@ def main():
             args.no_tt,
             args.no_rank_skip,
             args.xray,
+            show_perf,
         )
 
         # Print summary

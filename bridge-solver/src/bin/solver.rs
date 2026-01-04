@@ -1,6 +1,6 @@
 //! Rust double-dummy solver CLI with C++ solver-compatible file format and output
 //!
-//! Usage: solver -f <file> [-X <iterations>] [-P] [-T] [-R]
+//! Usage: solver -f <file> [-X <iterations>] [-P] [-T] [-R] [-V]
 //!
 //! File format (same as C++ solver):
 //!   Line 1: North hand (spades hearts diamonds clubs, space-separated)
@@ -10,7 +10,7 @@
 //!   Line 5: Leader (W/N/E/S) - optional, defaults to all 4
 
 use bridge_solver::{
-    get_node_count, set_no_pruning, set_no_rank_skip, set_no_tt, set_xray_limit,
+    get_node_count, set_no_pruning, set_no_rank_skip, set_no_tt, set_xray_limit, set_show_perf,
     Cards, Hands, Solver,
     CLUB, DIAMOND, HEART, NOTRUMP, SPADE,
     EAST, NORTH, SOUTH, WEST,
@@ -31,6 +31,7 @@ fn main() {
     let mut no_pruning = false;
     let mut no_tt = false;
     let mut no_rank_skip = false;
+    let mut show_perf = false;
     let mut i = 1;
     while i < args.len() {
         if args[i] == "-f" && i + 1 < args.len() {
@@ -48,6 +49,9 @@ fn main() {
         } else if args[i] == "-R" {
             no_rank_skip = true;
             i += 1;
+        } else if args[i] == "-V" {
+            show_perf = true;
+            i += 1;
         } else {
             i += 1;
         }
@@ -56,7 +60,7 @@ fn main() {
     let file_path = match file_path {
         Some(p) => p,
         None => {
-            eprintln!("Usage: solver -f <file> [-X <iterations>] [-P] [-T] [-R]");
+            eprintln!("Usage: solver -f <file> [-X <iterations>] [-P] [-T] [-R] [-V]");
             std::process::exit(1);
         }
     };
@@ -74,6 +78,11 @@ fn main() {
     // Set no-TT mode if specified
     if no_tt {
         set_no_tt(true);
+    }
+
+    // Set show-perf mode if specified
+    if show_perf {
+        set_show_perf(true);
     }
 
     // Set no-rank-skip mode if specified
