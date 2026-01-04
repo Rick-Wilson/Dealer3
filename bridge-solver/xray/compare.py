@@ -26,16 +26,19 @@ from pathlib import Path
 
 # Paths (relative to this script's directory)
 SCRIPT_DIR = Path(__file__).parent.resolve()
-DEALER_DDS_DIR = SCRIPT_DIR.parent.parent  # dealer-dds/
-WORKSPACE_DIR = DEALER_DDS_DIR.parent  # dealer3/ (workspace root)
-BRIDGE_SOLVER_DIR = WORKSPACE_DIR / "bridge-solver"
+BRIDGE_SOLVER_CRATE = SCRIPT_DIR.parent  # bridge-solver/ (Rust crate)
+WORKSPACE_DIR = BRIDGE_SOLVER_CRATE.parent  # dealer3/ (workspace root)
+GITHUB_DIR = WORKSPACE_DIR.parent  # ~/Developer/GitHub/
 RUNS_DIR = SCRIPT_DIR / "runs"  # Results folder (gitignored)
 
-# Solver executables (workspace builds to workspace root target/)
-RUST_SOLVER = WORKSPACE_DIR / "target" / "release" / "examples" / "solver_rust"
-RUST_SOLVER_V2 = WORKSPACE_DIR / "target" / "release" / "examples" / "solver_v2"
-CPP_SOLVER = BRIDGE_SOLVER_DIR / "solver"
-CPP_SOLVER_XRAY = BRIDGE_SOLVER_DIR / "solver_xray"
+# C++ solver executables (in separate repos)
+CPP_SOLVER_XRAY_REPO = GITHUB_DIR / "bridge-solver-xray"
+CPP_SOLVER_UPSTREAM_REPO = GITHUB_DIR / "bridge-solver-upstream"
+CPP_SOLVER = CPP_SOLVER_UPSTREAM_REPO / "solver"  # Regular C++ solver
+CPP_SOLVER_XRAY = CPP_SOLVER_XRAY_REPO / "xray" / "solver-xray"  # Instrumented C++ solver
+
+# Rust solver executable (workspace builds to workspace root target/)
+RUST_SOLVER = WORKSPACE_DIR / "target" / "release" / "solver"
 
 
 def parse_args():
@@ -93,21 +96,15 @@ def parse_args():
         action="store_true",
         help="Disable min_relevant_ranks optimization in C++ (for debugging search paths)"
     )
-    parser.add_argument(
-        "--v2",
-        action="store_true",
-        help="Use solver_v2 (solve_v2 method) instead of solver_rust"
-    )
     return parser.parse_args()
 
 
-def build_rust_solver(use_v2: bool = False):
+def build_rust_solver():
     """Build the Rust solver in release mode."""
-    example_name = "solver_v2" if use_v2 else "solver_rust"
-    print(f"Building Rust solver ({example_name})...")
+    print("Building Rust solver...")
     result = subprocess.run(
-        ["cargo", "build", "--example", example_name, "--release"],
-        cwd=DEALER_DDS_DIR,
+        ["cargo", "build", "--bin", "solver", "--release"],
+        cwd=WORKSPACE_DIR,
         capture_output=True,
         text=True
     )
@@ -462,7 +459,6 @@ def write_comparison_report(
     no_tt: bool = False,
     no_rank_skip: bool = False,
     xray_iterations: int = 0,
-    use_v2: bool = False
 ):
     """Write the comparison report."""
     report_path = run_folder / "comparison.md"
@@ -484,8 +480,6 @@ def write_comparison_report(
             f.write(f"- **No-TT**: enabled\n")
         if no_rank_skip:
             f.write(f"- **No-rank-skip**: enabled\n")
-        if use_v2:
-            f.write(f"- **Solver**: solver_v2 (--v2)\n")
         f.write(f"- **Timestamp**: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}\n\n")
 
         # Timeout status
@@ -582,19 +576,15 @@ def main():
             print(f"Error: Input file not found: {input_file}")
             sys.exit(1)
 
-    # Select rust solver
-    rust_solver = RUST_SOLVER_V2 if args.v2 else RUST_SOLVER
-    rust_solver_name = "solver_v2" if args.v2 else "solver_rust"
-
     # Build if requested
     if args.build:
-        build_rust_solver(args.v2)
+        build_rust_solver()
 
     # Check solvers exist
-    if not rust_solver.exists():
-        print(f"Rust solver not found at {rust_solver}")
+    if not RUST_SOLVER.exists():
+        print(f"Rust solver not found at {RUST_SOLVER}")
         print("Run with --build to build it, or run:")
-        print(f"  cd {DEALER_DDS_DIR} && cargo build --example {rust_solver_name} --release")
+        print(f"  cd {WORKSPACE_DIR} && cargo build --bin solver --release")
         sys.exit(1)
 
     # Use xray solver if xray tracing is requested
@@ -603,11 +593,11 @@ def main():
         if args.xray > 0:
             print(f"C++ xray solver not found at {cpp_solver}")
             print("Build it with:")
-            print(f"  cd {BRIDGE_SOLVER_DIR} && g++ -O3 -march=native -std=c++17 -o solver_xray solver_xray.cc")
+            print(f"  cd {CPP_SOLVER_XRAY_REPO}/xray && make")
         else:
             print(f"C++ solver not found at {cpp_solver}")
             print("Build it with:")
-            print(f"  cd {BRIDGE_SOLVER_DIR} && make")
+            print(f"  cd {CPP_SOLVER_UPSTREAM_REPO} && make")
         sys.exit(1)
 
     # Create temp input file
@@ -636,9 +626,9 @@ def main():
         print()
 
         # Run Rust solver
-        print(f"Running Rust solver ({rust_solver_name})...")
+        print("Running Rust solver...")
         rust_output, rust_time, rust_timeout, rust_xray, rust_equiv = run_solver(
-            rust_solver, temp_input, "rust", args.timeout, args.xray, args.no_pruning, args.no_tt, args.no_rank_skip
+            RUST_SOLVER, temp_input, "rust", args.timeout, args.xray, args.no_pruning, args.no_tt, args.no_rank_skip
         )
         with open(run_folder / "rust_output.txt", "w") as f:
             f.write(rust_output)
@@ -697,7 +687,6 @@ def main():
             args.no_tt,
             args.no_rank_skip,
             args.xray,
-            args.v2
         )
 
         # Print summary

@@ -27,4 +27,4 @@ test-data/
 dist/
 
 # X-ray test runs
-bridge-solver/examples/xray/runs/
+bridge-solver/xray/runs/

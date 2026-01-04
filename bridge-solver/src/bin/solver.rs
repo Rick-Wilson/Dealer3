@@ -1,6 +1,6 @@
-//! Rust solver with C++ solver-compatible file format and output
+//! Rust double-dummy solver CLI with C++ solver-compatible file format and output
 //!
-//! Usage: cargo run --example xray/solver_rust --release -- -f <file>
+//! Usage: solver -f <file> [-X <iterations>] [-P] [-T] [-R]
 //!
 //! File format (same as C++ solver):
 //!   Line 1: North hand (spades hearts diamonds clubs, space-separated)
@@ -9,9 +9,15 @@
 //!   Line 4: Trump (N/S/H/D/C) - optional, defaults to all 5
 //!   Line 5: Leader (W/N/E/S) - optional, defaults to all 4
 
-use dealer_dds::solver2::{get_node_count, set_xray_limit, set_no_pruning, set_no_tt, Hands, Solver};
-use dealer_dds::solver2::{CLUB, DIAMOND, HEART, NOTRUMP, SPADE};
-use dealer_dds::solver2::{EAST, NORTH, SOUTH, WEST};
+use bridge_solver::{
+    get_node_count, set_no_pruning, set_no_rank_skip, set_no_tt, set_xray_limit,
+    Cards, Hands, Solver,
+    CLUB, DIAMOND, HEART, NOTRUMP, SPADE,
+    EAST, NORTH, SOUTH, WEST,
+    NUM_RANKS,
+};
+use bridge_solver::cards::card_of;
+use bridge_solver::types::rank_name;
 use std::env;
 use std::fs;
 use std::time::Instant;
@@ -24,6 +30,7 @@ fn main() {
     let mut xray_iterations = 0usize;
     let mut no_pruning = false;
     let mut no_tt = false;
+    let mut no_rank_skip = false;
     let mut i = 1;
     while i < args.len() {
         if args[i] == "-f" && i + 1 < args.len() {
@@ -38,6 +45,9 @@ fn main() {
         } else if args[i] == "-T" {
             no_tt = true;
             i += 1;
+        } else if args[i] == "-R" {
+            no_rank_skip = true;
+            i += 1;
         } else {
             i += 1;
         }
@@ -46,7 +56,7 @@ fn main() {
     let file_path = match file_path {
         Some(p) => p,
         None => {
-            eprintln!("Usage: solver_rust -f <file> [-X <iterations>] [-P] [-T]");
+            eprintln!("Usage: solver -f <file> [-X <iterations>] [-P] [-T] [-R]");
             std::process::exit(1);
         }
     };
@@ -64,6 +74,11 @@ fn main() {
     // Set no-TT mode if specified
     if no_tt {
         set_no_tt(true);
+    }
+
+    // Set no-rank-skip mode if specified
+    if no_rank_skip {
+        set_no_rank_skip(true);
     }
 
     // Read and parse the file
@@ -124,6 +139,8 @@ fn main() {
         None => vec![WEST, EAST, NORTH, SOUTH],
     };
 
+    let num_tricks = hands.num_tricks();
+
     // Solve for each trump/leader combination
     for &t in &trumps {
         let trump_char = trump_to_char(t);
@@ -133,9 +150,15 @@ fn main() {
             let l = leaders[0];
             let start = Instant::now();
             let solver = Solver::new(hands, t, l);
-            let result = solver.solve();
+            let ns_tricks = solver.solve();
             let elapsed = start.elapsed();
             let nodes = get_node_count();
+            // Match C++ output: when N/S leads, show total - ns_tricks
+            let result = if l == NORTH || l == SOUTH {
+                num_tricks as u8 - ns_tricks
+            } else {
+                ns_tricks
+            };
             println!(
                 "{}  {}  {:.2} s {:.1} M",
                 trump_char,
@@ -144,7 +167,7 @@ fn main() {
                 nodes as f64 / 1_000_000.0
             );
         } else {
-            // Multiple leaders - show results in W N E S order on one line
+            // Multiple leaders - show results in W E N S order on one line
             let mut results = Vec::new();
             let mut total_time = 0.0;
             let mut total_nodes = 0u64;
@@ -152,9 +175,15 @@ fn main() {
             for &l in &leaders {
                 let start = Instant::now();
                 let solver = Solver::new(hands, t, l);
-                let result = solver.solve();
+                let ns_tricks = solver.solve();
                 let elapsed = start.elapsed();
                 let nodes = get_node_count();
+                // Match C++ output: when N/S leads, show total - ns_tricks
+                let result = if l == NORTH || l == SOUTH {
+                    num_tricks as u8 - ns_tricks
+                } else {
+                    ns_tricks
+                };
                 results.push(result);
                 total_time += elapsed.as_secs_f64();
                 total_nodes += nodes;
@@ -257,9 +286,7 @@ fn print_hand_diagram(hands: &Hands) {
     println!("                          {}", s);
 }
 
-fn format_hand_with_suits(cards: dealer_dds::solver2::Cards) -> String {
-    use dealer_dds::solver2::{CLUB, DIAMOND, HEART, SPADE};
-
+fn format_hand_with_suits(cards: Cards) -> String {
     let mut parts = Vec::new();
 
     for (suit, symbol) in [(SPADE, "\u{2660}"), (HEART, "\u{2665}"), (DIAMOND, "\u{2666}"), (CLUB, "\u{2663}")] {
@@ -271,10 +298,7 @@ fn format_hand_with_suits(cards: dealer_dds::solver2::Cards) -> String {
     parts.join(" ")
 }
 
-fn format_suit_cards(cards: dealer_dds::solver2::Cards, suit: usize) -> String {
-    use dealer_dds::solver2::types::{rank_name, NUM_RANKS};
-    use dealer_dds::solver2::cards::card_of;
-
+fn format_suit_cards(cards: Cards, suit: usize) -> String {
     let mut s = String::new();
     // Iterate from Ace down to 2
     for rank in (0..NUM_RANKS).rev() {
