@@ -10,7 +10,7 @@
 //!   Line 5: Leader (W/N/E/S) - optional, defaults to all 4
 
 use bridge_solver::{
-    get_node_count, set_no_pruning, set_no_rank_skip, set_no_tt, set_xray_limit, set_show_perf,
+    set_no_pruning, set_no_rank_skip, set_no_tt, set_xray_limit, set_show_perf,
     Cards, Hands, Solver,
     CLUB, DIAMOND, HEART, NOTRUMP, SPADE,
     EAST, NORTH, SOUTH, WEST,
@@ -161,7 +161,6 @@ fn main() {
             let solver = Solver::new(hands, t, l);
             let ns_tricks = solver.solve();
             let elapsed = start.elapsed();
-            let nodes = get_node_count();
             // Match C++ output: when N/S leads, show total - ns_tricks
             let result = if l == NORTH || l == SOUTH {
                 num_tricks as u8 - ns_tricks
@@ -169,24 +168,21 @@ fn main() {
                 ns_tricks
             };
             println!(
-                "{}  {}  {:.2} s {:.1} M",
+                "{}  {}  {:.2} s N/A M",
                 trump_char,
                 result,
-                elapsed.as_secs_f64(),
-                nodes as f64 / 1_000_000.0
+                elapsed.as_secs_f64()
             );
         } else {
             // Multiple leaders - show results in W E N S order on one line
             let mut results = Vec::new();
             let mut total_time = 0.0;
-            let mut total_nodes = 0u64;
 
             for &l in &leaders {
                 let start = Instant::now();
                 let solver = Solver::new(hands, t, l);
                 let ns_tricks = solver.solve();
                 let elapsed = start.elapsed();
-                let nodes = get_node_count();
                 // Match C++ output: when N/S leads, show total - ns_tricks
                 let result = if l == NORTH || l == SOUTH {
                     num_tricks as u8 - ns_tricks
@@ -195,18 +191,16 @@ fn main() {
                 };
                 results.push(result);
                 total_time += elapsed.as_secs_f64();
-                total_nodes += nodes;
             }
 
             println!(
-                "{}  {}  {}  {}  {}  {:.2} s {:.1} M",
+                "{}  {}  {}  {}  {}  {:.2} s N/A M",
                 trump_char,
                 results[0],
                 results[1],
                 results[2],
                 results[3],
-                total_time,
-                total_nodes as f64 / 1_000_000.0
+                total_time
             );
         }
     }
