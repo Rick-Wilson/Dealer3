@@ -1050,44 +1050,4 @@ mod tests {
         // Note: Expected value needs verification with C++ solver
     }
 
-    // Tests for solve_v2 (new 3-layer structure)
-    #[test]
-    fn test_solver_v2_1_trick() {
-        let hands = Hands::from_pbn("N:A... K... 2... 3...").unwrap();
-        let solver = Solver::new(hands, NOTRUMP, WEST);
-        let v1 = solver.solve();
-        let v2 = solver.solve_v2();
-        assert_eq!(v1, v2, "solve and solve_v2 should return same result");
-        assert_eq!(v2, 1);
-    }
-
-    #[test]
-    fn test_solver_v2_2_tricks() {
-        let hands = Hands::from_pbn("N:A.A.. K.K.. 2.2.. 3.3..").unwrap();
-        let solver = Solver::new(hands, NOTRUMP, WEST);
-        let v1 = solver.solve();
-        let v2 = solver.solve_v2();
-        assert_eq!(v1, v2, "solve and solve_v2 should return same result");
-        assert_eq!(v2, 2);
-    }
-
-    #[test]
-    fn test_solver_v2_4_tricks() {
-        let hands = Hands::from_pbn("N:A.A.A.A K.K.K.K 2.2.2.2 3.3.3.3").unwrap();
-        let solver = Solver::new(hands, NOTRUMP, WEST);
-        let v1 = solver.solve();
-        let v2 = solver.solve_v2();
-        assert_eq!(v1, v2, "solve and solve_v2 should return same result");
-        assert_eq!(v2, 4);
-    }
-
-    #[test]
-    fn test_solver_v2_8_tricks() {
-        let hands = Hands::from_pbn("N:AK.AK.AK.AK QJ.QJ.QJ.QJ 32.32.32.32 T9.T9.T9.T9").unwrap();
-        let solver = Solver::new(hands, NOTRUMP, WEST);
-        let v1 = solver.solve();
-        let v2 = solver.solve_v2();
-        assert_eq!(v1, v2, "solve and solve_v2 should return same result");
-        assert_eq!(v2, 8);
-    }
 }

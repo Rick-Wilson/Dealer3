@@ -440,9 +440,24 @@ impl<'a> Search<'a> {
                     let adj_lower = bounds.lower + ns_tricks_won as i8;
                     let adj_upper = bounds.upper + ns_tricks_won as i8;
                     if adj_lower >= beta {
+                        if xray_should_log() {
+                            eprintln!(
+                                "PATTERN_HIT: depth={} seat={} beta={} ns_tricks_won={} bounds=[{},{}] adj_lower={} LOWER_CUT shape={:x} hands=[{:x},{:x},{:x},{:x}]",
+                                depth, seat_to_play, beta, ns_tricks_won, bounds.lower, bounds.upper, adj_lower,
+                                shape_value,
+                                new_pattern.hands[WEST].value(), new_pattern.hands[NORTH].value(),
+                                new_pattern.hands[EAST].value(), new_pattern.hands[SOUTH].value()
+                            );
+                        }
                         return SearchResult { ns_tricks: adj_lower as u8, rank_winners: Cards::new() };
                     }
                     if adj_upper < beta {
+                        if xray_should_log() {
+                            eprintln!(
+                                "PATTERN_HIT: depth={} seat={} beta={} ns_tricks_won={} bounds=[{},{}] adj_upper={} UPPER_CUT",
+                                depth, seat_to_play, beta, ns_tricks_won, bounds.lower, bounds.upper, adj_upper
+                            );
+                        }
                         return SearchResult { ns_tricks: adj_upper as u8, rank_winners: Cards::new() };
                     }
                     pattern_cutoff = true;
@@ -470,7 +485,17 @@ impl<'a> Search<'a> {
                 result.rank_winners,
             );
 
-            let new_pattern = Pattern::new(pattern_hands, bounds);
+            let new_pattern = Pattern::new(pattern_hands.clone(), bounds);
+            if xray_should_log() {
+                eprintln!(
+                    "PATTERN_STORE: depth={} seat={} beta={} ns_tricks_won={} result={} bounds=[{},{}] shape={:x} hands=[{:x},{:x},{:x},{:x}] rank_winners={:x}",
+                    depth, seat_to_play, beta, ns_tricks_won, result.ns_tricks, bounds.lower, bounds.upper,
+                    shape_value,
+                    pattern_hands[WEST].value(), pattern_hands[NORTH].value(),
+                    pattern_hands[EAST].value(), pattern_hands[SOUTH].value(),
+                    result.rank_winners.value()
+                );
+            }
             let entry = self.pattern_cache.get_or_create(shape_value, seat_to_play);
             entry.pattern.update(new_pattern);
 
@@ -491,7 +516,7 @@ impl<'a> Search<'a> {
 
         if !NO_PRUNING.load(Ordering::Relaxed) {
             // Fast tricks pruning
-            let fast = self.fast_tricks(depth);
+            let (fast, fast_rank_winners) = self.fast_tricks(depth);
 
             // Debug logging for fast tricks
             if xray_should_log() {
@@ -502,23 +527,22 @@ impl<'a> Search<'a> {
             }
 
             if is_ns(seat_to_play) && ns_tricks_won as usize + fast >= beta as usize {
-                // TODO: Could compute proper rank_winners for fast tricks
-                return SearchResult { ns_tricks: (ns_tricks_won as usize + fast) as u8, rank_winners: Cards::new() };
+                return SearchResult { ns_tricks: (ns_tricks_won as usize + fast) as u8, rank_winners: fast_rank_winners };
             }
             if !is_ns(seat_to_play) && (ns_tricks_won as usize + remaining - fast) < beta as usize {
-                return SearchResult { ns_tricks: (ns_tricks_won as usize + remaining - fast) as u8, rank_winners: Cards::new() };
+                return SearchResult { ns_tricks: (ns_tricks_won as usize + remaining - fast) as u8, rank_winners: fast_rank_winners };
             }
 
             // Slow tricks pruning
             // For trump contracts with trumps remaining: use top trump tricks, then slow trump tricks
-            // For NT contracts OR trump contracts with no trumps remaining: use slow NT tricks
+            // For NT contracts OR trump contract with no trumps remaining: use slow NT tricks
             let all_cards = self.hands.all_cards();
             let has_trumps = self.trump < NOTRUMP && !all_cards.suit(self.trump).is_empty();
-            let slow = if has_trumps {
+            let (slow, slow_rank_winners) = if has_trumps {
                 // Trump contract with trumps remaining
-                let top = self.top_trump_tricks_opponent(depth);
+                let (top, top_rw) = self.top_trump_tricks_opponent(depth);
                 if top > 0 {
-                    top
+                    (top, top_rw)
                 } else {
                     // Try slow trump tricks (finesse positions)
                     self.slow_trump_tricks_opponent(depth)
@@ -540,12 +564,12 @@ impl<'a> Search<'a> {
                 if is_ns(seat_to_play) {
                     // NS to play, check if EW's slow tricks limit NS
                     if (ns_tricks_won as usize + remaining - slow) < beta as usize {
-                        return SearchResult { ns_tricks: (ns_tricks_won as usize + remaining - slow) as u8, rank_winners: Cards::new() };
+                        return SearchResult { ns_tricks: (ns_tricks_won as usize + remaining - slow) as u8, rank_winners: slow_rank_winners };
                     }
                 } else {
                     // EW to play, check if NS's slow tricks give them enough
                     if ns_tricks_won as usize + slow >= beta as usize {
-                        return SearchResult { ns_tricks: (ns_tricks_won as usize + slow) as u8, rank_winners: Cards::new() };
+                        return SearchResult { ns_tricks: (ns_tricks_won as usize + slow) as u8, rank_winners: slow_rank_winners };
                     }
                 }
             }
@@ -1119,50 +1143,54 @@ impl<'a> Search<'a> {
         my_suit.size().min(my_winners + adjusted_pd_winners)
     }
 
-    /// Count top trump tricks for our side
-    fn top_trump_tricks_our_side(&self, seat: Seat, all_cards: Cards) -> usize {
+    /// Count top trump tricks for our side, returning (count, rank_winners)
+    fn top_trump_tricks_our_side(&self, seat: Seat, all_cards: Cards) -> (usize, Cards) {
         let my_trumps = self.hands[seat].suit(self.trump);
         let pd_trumps = self.hands[partner(seat)].suit(self.trump);
         let all_trumps = all_cards.suit(self.trump);
 
         // If we have all the trumps
         if my_trumps == all_trumps {
-            return my_trumps.size();
+            return (my_trumps.size(), Cards::new());
         }
         if pd_trumps == all_trumps {
-            return pd_trumps.size();
+            return (pd_trumps.size(), Cards::new());
         }
 
         let both_trumps = my_trumps.union(pd_trumps);
         let max_trump_tricks = my_trumps.size().max(pd_trumps.size());
         let mut sure_tricks = 0;
+        let mut rank_winners = Cards::new();
 
         // Count consecutive top trumps held by our side
         for card in all_trumps.iter() {
             if both_trumps.have(card) && sure_tricks < max_trump_tricks {
                 sure_tricks += 1;
+                rank_winners.add(card);
             } else {
                 break;
             }
         }
 
-        sure_tricks
+        (sure_tricks, rank_winners)
     }
 
     /// Count guaranteed fast tricks from a given seat's perspective.
-    fn fast_tricks_from_seat(&self, seat: Seat, all_cards: Cards) -> usize {
+    /// Returns (count, rank_winners) matching C++ FastTricks().
+    fn fast_tricks_from_seat(&self, seat: Seat, all_cards: Cards) -> (usize, Cards) {
         let my_hand = self.hands[seat];
         let pd_hand = self.hands[partner(seat)];
         let lho_hand = self.hands[left_hand_opp(seat)];
         let rho_hand = self.hands[right_hand_opp(seat)];
 
         // Count top trump tricks for our side in trump contracts
-        let trump_tricks = if self.trump < NOTRUMP {
+        let (trump_tricks, mut rank_winners) = if self.trump < NOTRUMP {
             self.top_trump_tricks_our_side(seat, all_cards)
         } else {
-            0
+            (0, Cards::new())
         };
 
+        let mut pd_rank_winners = Cards::new();
         let mut my_tricks = 0;
         let mut pd_tricks = 0;
         let mut my_entry = false;
@@ -1184,6 +1212,10 @@ impl<'a> Search<'a> {
                 continue;
             }
 
+            // Compute max rank winners for each hand (matches C++ logic)
+            let my_max_rank_winners = pd_suit.size().max(lho_suit.size()).max(rho_suit.size());
+            let pd_max_rank_winners = my_suit.size().max(lho_suit.size()).max(rho_suit.size());
+
             // In trump contracts, limit side suit winners to opponent's suit length
             // If opponents have trumps, they can ruff once they run out of the suit
             if self.trump < NOTRUMP {
@@ -1203,14 +1235,20 @@ impl<'a> Search<'a> {
                 }
             }
 
-            // Count winners for each hand
+            // Count winners for each hand and track rank winners
             let mut my_winners = 0;
             let mut pd_winners = 0;
             for card in all_suit.iter() {
                 if my_suit.have(card) {
                     my_winners += 1;
+                    if my_winners <= my_max_rank_winners {
+                        rank_winners.add(card);
+                    }
                 } else if pd_suit.have(card) {
                     pd_winners += 1;
+                    if pd_winners <= pd_max_rank_winners {
+                        pd_rank_winners.add(card);
+                    }
                 } else {
                     break;
                 }
@@ -1221,22 +1259,23 @@ impl<'a> Search<'a> {
         }
 
         let side_suit_tricks = if pd_entry {
+            rank_winners = rank_winners.union(pd_rank_winners);
             my_tricks.max(pd_tricks)
         } else {
             my_tricks
         };
 
         // Total fast tricks = trump tricks + side suit tricks, capped by our hand size
-        (trump_tricks + side_suit_tricks).min(my_hand.size())
+        ((trump_tricks + side_suit_tricks).min(my_hand.size()), rank_winners)
     }
 
-    /// Fast tricks estimation
-    fn fast_tricks(&self, depth: usize) -> usize {
+    /// Fast tricks estimation - returns (count, rank_winners)
+    fn fast_tricks(&self, depth: usize) -> (usize, Cards) {
         let seat_to_play = self.plays[depth].seat_to_play;
         let all_cards = self.hands.all_cards();
         let trick_idx = depth / 4;
         let max_tricks = self.num_tricks - trick_idx;
-        let tricks = self.fast_tricks_from_seat(seat_to_play, all_cards);
+        let (tricks, rank_winners) = self.fast_tricks_from_seat(seat_to_play, all_cards);
         let result = tricks.min(max_tricks);
 
         // Debug logging when XRAY is enabled and under limit
@@ -1246,12 +1285,13 @@ impl<'a> Search<'a> {
                 depth, seat_to_play, tricks, result, self.trump
             );
         }
-        result
+        (result, rank_winners)
     }
 
     /// Top trump tricks for opponents (trump contracts only)
     /// Counts guaranteed top trump tricks for the opponents (LHO + RHO)
-    fn top_trump_tricks_opponent(&self, depth: usize) -> usize {
+    /// Returns (count, rank_winners) matching C++ TopTrumpTricks
+    fn top_trump_tricks_opponent(&self, depth: usize) -> (usize, Cards) {
         let seat_to_play = self.plays[depth].seat_to_play;
         let lho_trumps = self.hands[left_hand_opp(seat_to_play)].suit(self.trump);
         let rho_trumps = self.hands[right_hand_opp(seat_to_play)].suit(self.trump);
@@ -1259,37 +1299,39 @@ impl<'a> Search<'a> {
 
         // If one opponent has all the trumps
         if lho_trumps == all_trumps {
-            return lho_trumps.size();
+            return (lho_trumps.size(), Cards::new());
         }
         if rho_trumps == all_trumps {
-            return rho_trumps.size();
+            return (rho_trumps.size(), Cards::new());
         }
 
         let both_trumps = lho_trumps.union(rho_trumps);
         let max_trump_tricks = lho_trumps.size().max(rho_trumps.size());
         let mut sure_tricks = 0;
+        let mut rank_winners = Cards::new();
 
         // Count consecutive top trumps held by opponents
         for card in all_trumps.iter() {
             if both_trumps.have(card) && sure_tricks < max_trump_tricks {
                 sure_tricks += 1;
+                rank_winners.add(card);
             } else {
                 break;
             }
         }
 
-        sure_tricks
+        (sure_tricks, rank_winners)
     }
 
     /// Slow trump tricks for opponents - detects finesse positions
-    /// Returns 1 if opponents have a guaranteed slow trump trick via finesse
-    /// Matches C++ SlowTrumpTricks logic
-    fn slow_trump_tricks_opponent(&self, depth: usize) -> usize {
+    /// Returns (1, rank_winners) if opponents have a guaranteed slow trump trick via finesse
+    /// Returns (count, rank_winners) matching C++ SlowTrumpTricks
+    fn slow_trump_tricks_opponent(&self, depth: usize) -> (usize, Cards) {
         let seat_to_play = self.plays[depth].seat_to_play;
         let all_trumps = self.hands.all_cards().suit(self.trump);
 
         if all_trumps.size() < 3 {
-            return 0;
+            return (0, Cards::new());
         }
 
         // From opponent's perspective (LHO = "my", RHO = "pd")
@@ -1304,7 +1346,7 @@ impl<'a> Search<'a> {
         let mut remaining = all_trumps;
         remaining.remove(a);
         if remaining.is_empty() {
-            return 0;
+            return (0, Cards::new());
         }
         let k = remaining.top();
         remaining.remove(k);
@@ -1315,6 +1357,11 @@ impl<'a> Search<'a> {
         };
 
         let num_tricks = self.num_tricks - (depth / 4);
+
+        // Build rank_winners for a and k
+        let mut ak_winners = Cards::new();
+        ak_winners.add(a);
+        ak_winners.add(k);
 
         // Kx behind A: partner has K (strictly, meaning more cards), LHO has A
         // OR: my hand has K (strictly), RHO has A (and not leading or enough tricks)
@@ -1328,7 +1375,7 @@ impl<'a> Search<'a> {
 
         if (pd_has_k_strictly && lho_has_a) ||
            (my_has_k_strictly && rho_has_a && (!leading || num_tricks >= 3)) {
-            return 1;
+            return (1, ak_winners);
         }
 
         // NOTE: The C++ code has a bug where Have(Cards) converts to Have(1) via operator bool().
@@ -1340,6 +1387,9 @@ impl<'a> Search<'a> {
 
         // Qxx behind AK: need at least 5 trumps
         if q < 64 && all_trumps.size() >= 5 {
+            let mut akq_winners = ak_winners;
+            akq_winners.add(q);
+
             let pd_has_q_with_length = pd_trumps.have(q) && pd_trumps.size() >= 3;
             let my_has_q_with_length = my_trumps.have(q) && my_trumps.size() >= 3;
             let lho_has_ak = lho_trumps.have(a) && lho_trumps.have(k);
@@ -1348,17 +1398,18 @@ impl<'a> Search<'a> {
             if (pd_has_q_with_length && lho_has_ak)
                 || (my_has_q_with_length && rho_has_ak && (!leading || num_tricks >= 4))
             {
-                return 1;
+                return (1, akq_winners);
             }
         }
 
-        0
+        (0, Cards::new())
     }
 
     /// Slow tricks for opponent (NT contracts only)
     /// When NS is leading, returns EW's slow tricks.
     /// When EW is leading, returns NS's slow tricks.
-    fn slow_tricks_opponent(&self, depth: usize) -> usize {
+    /// Returns (count, rank_winners) matching C++ SlowNoTrumpTricks.
+    fn slow_tricks_opponent(&self, depth: usize) -> (usize, Cards) {
         let seat_to_play = self.plays[depth].seat_to_play;
 
         // Opponents of current player
@@ -1385,20 +1436,20 @@ impl<'a> Search<'a> {
             let top = all_suit.top();
             // If current side has the top card, no slow trick for opponents
             if my_side_cards.have(top) {
-                return 0;
+                return (0, Cards::new());
             }
             rank_winners.add(top);
         }
 
         if rank_winners.is_empty() {
-            return 0;
+            return (0, Cards::new());
         }
 
         // Check if all rank winners are in one opponent's hand
         if lho_hand.include(rank_winners) || rho_hand.include(rank_winners) {
-            rank_winners.size()
+            (rank_winners.size(), rank_winners)
         } else {
-            1
+            (1, rank_winners)
         }
     }
 }
