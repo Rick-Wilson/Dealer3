@@ -179,22 +179,6 @@ fn hash_cutoff_index(key0: u64, key1: u64) -> u64 {
     (key0.wrapping_add(HASH_RAND[0])).wrapping_mul(key1.wrapping_add(HASH_RAND[1]))
 }
 
-/// Build cutoff index keys (matches C++ BuildCutoffIndex)
-#[inline]
-fn build_cutoff_index(
-    hands: &Hands,
-    seat_to_play: Seat,
-    card_in_trick: usize,
-    lead_suit: usize,
-    winning_card: usize,
-    winning_seat: Seat,
-    trump: usize,
-    all_cards: Cards,
-) -> u64 {
-    let (hash, _, _) = build_cutoff_index_debug(hands, seat_to_play, card_in_trick, lead_suit, winning_card, winning_seat, trump, all_cards);
-    hash
-}
-
 /// Build cutoff index keys with debug info (returns hash, key0, key1)
 #[inline]
 fn build_cutoff_index_debug(
@@ -260,31 +244,9 @@ impl OrderedCards {
     }
 
     #[inline]
-    pub fn reset(&mut self) {
-        self.count = 0;
-    }
-
-    #[inline]
     pub fn add(&mut self, card: usize) {
         self.cards[self.count] = card as u8;
         self.count += 1;
-    }
-
-    #[inline]
-    pub fn add_cards(&mut self, cards: Cards) {
-        for card in cards.iter() {
-            self.add(card);
-        }
-    }
-
-    #[inline]
-    pub fn add_reversed(&mut self, cards: Cards) {
-        let mut remaining = cards;
-        while !remaining.is_empty() {
-            let card = remaining.bottom();
-            self.add(card);
-            remaining.remove(card);
-        }
     }
 
     #[inline]
@@ -295,11 +257,6 @@ impl OrderedCards {
     #[inline]
     pub fn card(&self, i: usize) -> usize {
         self.cards[i] as usize
-    }
-
-    #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        self.cards[..self.count].iter().map(|&c| c as usize)
     }
 }
 

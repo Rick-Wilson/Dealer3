@@ -79,10 +79,6 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn new() -> Self {
-        Shape { value: 0 }
-    }
-
     pub fn from_hands(hands: &Hands) -> Self {
         let mut value = 0u64;
         for seat in 0..NUM_SEATS {
@@ -100,10 +96,6 @@ impl Shape {
         self.value -= 1u64 << Self::offset((seat + 1) % NUM_SEATS, suit_of(c2));
         self.value -= 1u64 << Self::offset((seat + 2) % NUM_SEATS, suit_of(c3));
         self.value -= 1u64 << Self::offset((seat + 3) % NUM_SEATS, suit_of(c4));
-    }
-
-    pub fn suit_length(&self, seat: Seat, suit: Suit) -> usize {
-        ((self.value >> Self::offset(seat, suit)) & 0xf) as usize
     }
 
     pub fn value(&self) -> u64 {
@@ -403,12 +395,6 @@ pub struct RelativeHands {
 }
 
 impl RelativeHands {
-    pub fn new() -> Self {
-        RelativeHands {
-            hands: Hands::default(),
-        }
-    }
-
     /// Convert a suit to relative cards
     pub fn convert_suit(&mut self, hands: &Hands, suit: Suit, all_suit_cards: Cards) {
         let all_value = all_suit_cards.value();
@@ -439,17 +425,6 @@ impl RelativeHands {
             remaining = remaining.clear_suit(suit);
             self.convert_suit(hands, suit, new_all_cards.suit(suit));
         }
-    }
-
-    /// Get relative rank of a card in its suit
-    pub fn relative_rank(&self, card: usize, all_cards: Cards) -> usize {
-        let suit = suit_of(card);
-        ACE - all_cards.suit(suit).slice(0, card).size()
-    }
-
-    /// Get the relative card (in 0-51 format)
-    pub fn relative_card(&self, card: usize, all_cards: Cards) -> usize {
-        card_of(suit_of(card), self.relative_rank(card, all_cards))
     }
 }
 
