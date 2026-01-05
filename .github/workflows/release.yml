@@ -22,23 +22,31 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: dealer
-            asset_name: dealer-linux-x86_64
+            dealer_artifact: dealer
+            solver_artifact: solver
+            dealer_asset: dealer-linux-x86_64
+            solver_asset: solver-linux-x86_64
             strip: true
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: dealer.exe
-            asset_name: dealer-windows-x86_64.exe
+            dealer_artifact: dealer.exe
+            solver_artifact: solver.exe
+            dealer_asset: dealer-windows-x86_64.exe
+            solver_asset: solver-windows-x86_64.exe
             strip: false
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: dealer
-            asset_name: dealer-macos-x86_64
+            dealer_artifact: dealer
+            solver_artifact: solver
+            dealer_asset: dealer-macos-x86_64
+            solver_asset: solver-macos-x86_64
             strip: false
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: dealer
-            asset_name: dealer-macos-aarch64
+            dealer_artifact: dealer
+            solver_artifact: solver
+            dealer_asset: dealer-macos-aarch64
+            solver_asset: solver-macos-aarch64
             strip: false
 
     steps:
@@ -55,52 +63,75 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Build release binary
+      - name: Build dealer binary
         run: cargo build --release --bin dealer --target ${{ matrix.target }}
 
-      - name: Strip binary (Linux only)
+      - name: Build solver binary
+        run: cargo build --release --bin solver --target ${{ matrix.target }}
+
+      - name: Strip binaries (Linux only)
         if: matrix.strip
-        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+        run: |
+          strip target/${{ matrix.target }}/release/${{ matrix.dealer_artifact }}
+          strip target/${{ matrix.target }}/release/${{ matrix.solver_artifact }}
 
       - name: Create distribution package
         shell: bash
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} dist/${{ matrix.asset_name }}
+          cp target/${{ matrix.target }}/release/${{ matrix.dealer_artifact }} dist/${{ matrix.dealer_asset }}
+          cp target/${{ matrix.target }}/release/${{ matrix.solver_artifact }} dist/${{ matrix.solver_asset }}
           cp LICENSE dist/
           if [ -f README.md ]; then
             cp README.md dist/
           fi
 
-      - name: Create tarball (Linux and macOS)
+      - name: Create dealer tarball (Linux and macOS)
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           cd dist
           if [ -f README.md ]; then
-            tar -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }} LICENSE README.md
+            tar -czf ${{ matrix.dealer_asset }}.tar.gz ${{ matrix.dealer_asset }} LICENSE README.md
           else
-            tar -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }} LICENSE
+            tar -czf ${{ matrix.dealer_asset }}.tar.gz ${{ matrix.dealer_asset }} LICENSE
           fi
 
-      - name: Create zip (Windows)
+      - name: Create solver tarball (Linux and macOS)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          cd dist
+          tar -czf ${{ matrix.solver_asset }}.tar.gz ${{ matrix.solver_asset }} LICENSE
+
+      - name: Create dealer zip (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
           cd dist
           if [ -f README.md ]; then
-            7z a ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }} LICENSE README.md
+            7z a ${{ matrix.dealer_asset }}.zip ${{ matrix.dealer_asset }} LICENSE README.md
           else
-            7z a ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }} LICENSE
+            7z a ${{ matrix.dealer_asset }}.zip ${{ matrix.dealer_asset }} LICENSE
           fi
+
+      - name: Create solver zip (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cd dist
+          7z a ${{ matrix.solver_asset }}.zip ${{ matrix.solver_asset }} LICENSE
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/${{ matrix.asset_name }}.tar.gz
-            dist/${{ matrix.asset_name }}.zip
-            dist/${{ matrix.asset_name }}
+            dist/${{ matrix.dealer_asset }}.tar.gz
+            dist/${{ matrix.dealer_asset }}.zip
+            dist/${{ matrix.dealer_asset }}
+            dist/${{ matrix.solver_asset }}.tar.gz
+            dist/${{ matrix.solver_asset }}.zip
+            dist/${{ matrix.solver_asset }}
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

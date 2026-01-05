@@ -143,6 +143,18 @@ jobs:
     - name: Build dealer3
       run: cargo build --release --bin dealer
 
+    - name: Build solver (bridge-solver)
+      run: cargo build --release --bin solver
+
+    - name: Test solver
+      run: |
+        # Test that solver runs and produces output
+        echo "              J75 AQT86 J AK95" > /tmp/test_deal.txt
+        echo "T3 74 AK763 J864           92 KJ92 T985 Q72" >> /tmp/test_deal.txt
+        echo "              AKQ864 53 Q42 T3" >> /tmp/test_deal.txt
+        ./target/release/solver -if /tmp/test_deal.txt
+        echo "Solver test passed"
+
     - name: Test RNG compatibility (seed 1)
       run: |
         # Test that seed 1 produces expected deals
