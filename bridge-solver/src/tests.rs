@@ -35,35 +35,35 @@ const TEST_CASES: &[TestCase] = &[
         pbn: "N:AKQT3.J6.KJ42.95 652.AK42.AQ87.T4 J74.QT95.T.AK863 98.873.9653.QJ72",
         trump: NOTRUMP,
         leader: NORTH,
-        expected_ns_tricks: 9,  // C++ shows 4 (EW tricks), so NS = 13-4 = 9
+        expected_ns_tricks: 9, // C++ shows 4 (EW tricks), so NS = 13-4 = 9
     },
     TestCase {
         name: "Test 4: Spades West lead",
         pbn: "N:AKQT3.J6.KJ42.95 652.AK42.AQ87.T4 J74.QT95.T.AK863 98.873.9653.QJ72",
         trump: SPADE,
         leader: WEST,
-        expected_ns_tricks: 10,  // C++ shows S 10 10 3 3, W lead = 10
+        expected_ns_tricks: 10, // C++ shows S 10 10 3 3, W lead = 10
     },
     TestCase {
         name: "Test 5: Hearts West lead",
         pbn: "N:AKQT3.J6.KJ42.95 652.AK42.AQ87.T4 J74.QT95.T.AK863 98.873.9653.QJ72",
         trump: HEART,
         leader: WEST,
-        expected_ns_tricks: 8,  // C++ shows H 8 8 4 4, W lead = 8
+        expected_ns_tricks: 8, // C++ shows H 8 8 4 4, W lead = 8
     },
     TestCase {
         name: "Test 6: Diamonds West lead",
         pbn: "N:AKQT3.J6.KJ42.95 652.AK42.AQ87.T4 J74.QT95.T.AK863 98.873.9653.QJ72",
         trump: DIAMOND,
         leader: WEST,
-        expected_ns_tricks: 7,  // C++ shows D 7 7 6 6, W lead = 7
+        expected_ns_tricks: 7, // C++ shows D 7 7 6 6, W lead = 7
     },
     TestCase {
         name: "Test 7: Clubs West lead",
         pbn: "N:AKQT3.J6.KJ42.95 652.AK42.AQ87.T4 J74.QT95.T.AK863 98.873.9653.QJ72",
         trump: CLUB,
         leader: WEST,
-        expected_ns_tricks: 8,  // C++ shows C 8 8 5 5, W lead = 8
+        expected_ns_tricks: 8, // C++ shows C 8 8 5 5, W lead = 8
     },
     TestCase {
         name: "Test 8: Cold 7NT",
@@ -84,7 +84,7 @@ const TEST_CASES: &[TestCase] = &[
         pbn: "N:AK32.AK32.K32.32 QJT9.QJT.QJT.QJT 8765.987.987.987 4.654.A654.AK654",
         trump: NOTRUMP,
         leader: WEST,
-        expected_ns_tricks: 5,  // C++ shows N 5 5 8 8, W lead = 5
+        expected_ns_tricks: 5, // C++ shows N 5 5 8 8, W lead = 5
     },
 ];
 

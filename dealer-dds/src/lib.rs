@@ -489,10 +489,16 @@ impl DoubleDummySolver {
             // Check if this move can lead to target
             let score = self.alpha_beta(&new_state, alpha, beta, tt);
 
-            let dominated = if maximizing { score >= target } else { score <= target };
+            let dominated = if maximizing {
+                score >= target
+            } else {
+                score <= target
+            };
 
             if dominated {
-                if let Some(terminal) = self.find_line_recursive(&new_state, target, alpha, beta, tt) {
+                if let Some(terminal) =
+                    self.find_line_recursive(&new_state, target, alpha, beta, tt)
+                {
                     return Some(terminal);
                 }
             }

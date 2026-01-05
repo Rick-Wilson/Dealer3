@@ -238,10 +238,10 @@ mod tests {
     #[test]
     fn test_hands_from_solver_format() {
         let hands = Hands::from_solver_format(
-            "AKQT3 J6 KJ42 95",      // North
-            "98 873 9653 QJ72",      // West
-            "652 AK42 AQ87 T4",      // East
-            "J74 QT95 T AK863",      // South
+            "AKQT3 J6 KJ42 95", // North
+            "98 873 9653 QJ72", // West
+            "652 AK42 AQ87 T4", // East
+            "J74 QT95 T AK863", // South
         )
         .expect("Should parse");
 

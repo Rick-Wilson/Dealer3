@@ -86,7 +86,9 @@ pub fn suit_name(suit: Suit) -> &'static str {
 
 /// Get rank name (character)
 pub fn rank_name(rank: Rank) -> char {
-    const NAMES: [char; 13] = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+    const NAMES: [char; 13] = [
+        '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A',
+    ];
     NAMES[rank]
 }
 

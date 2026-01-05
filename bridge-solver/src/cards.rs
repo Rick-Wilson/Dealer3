@@ -359,9 +359,9 @@ mod tests {
     #[test]
     fn test_cards_top_bottom() {
         let mut cards = Cards::new();
-        cards.add(card_of(SPADE, ACE));   // card 0
-        cards.add(card_of(SPADE, TWO));   // card 12
-        cards.add(card_of(HEART, KING));  // card 14
+        cards.add(card_of(SPADE, ACE)); // card 0
+        cards.add(card_of(SPADE, TWO)); // card 12
+        cards.add(card_of(HEART, KING)); // card 14
 
         assert_eq!(cards.top(), card_of(SPADE, ACE));
         assert_eq!(cards.bottom(), card_of(HEART, KING));
@@ -385,11 +385,11 @@ mod tests {
     #[test]
     fn test_cards_points() {
         let mut cards = Cards::new();
-        cards.add(card_of(SPADE, ACE));   // 4 HCP
-        cards.add(card_of(SPADE, KING));  // 3 HCP
+        cards.add(card_of(SPADE, ACE)); // 4 HCP
+        cards.add(card_of(SPADE, KING)); // 3 HCP
         cards.add(card_of(HEART, QUEEN)); // 2 HCP
-        cards.add(card_of(HEART, JACK));  // 1 HCP
-        cards.add(card_of(HEART, TEN));   // 0 HCP
+        cards.add(card_of(HEART, JACK)); // 1 HCP
+        cards.add(card_of(HEART, TEN)); // 0 HCP
 
         assert_eq!(cards.points(), 10);
     }
@@ -414,9 +414,9 @@ mod tests {
 
     #[test]
     fn test_higher_lower_rank() {
-        let ace = card_of(SPADE, ACE);   // card 0
+        let ace = card_of(SPADE, ACE); // card 0
         let king = card_of(SPADE, KING); // card 1
-        let two = card_of(SPADE, TWO);   // card 12
+        let two = card_of(SPADE, TWO); // card 12
 
         assert!(higher_rank(ace, king));
         assert!(higher_rank(king, two));

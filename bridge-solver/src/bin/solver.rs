@@ -9,15 +9,13 @@
 //!   Line 4: Trump (N/S/H/D/C) - optional, defaults to all 5
 //!   Line 5: Leader (W/N/E/S) - optional, defaults to all 4
 
-use bridge_solver::{
-    set_no_pruning, set_no_rank_skip, set_no_tt, set_xray_limit, set_show_perf,
-    Cards, Hands, Solver, CutoffCache, PatternCache,
-    CLUB, DIAMOND, HEART, NOTRUMP, SPADE,
-    EAST, NORTH, SOUTH, WEST,
-    NUM_RANKS,
-};
 use bridge_solver::cards::card_of;
 use bridge_solver::types::rank_name;
+use bridge_solver::{
+    set_no_pruning, set_no_rank_skip, set_no_tt, set_show_perf, set_xray_limit, Cards, CutoffCache,
+    Hands, PatternCache, Solver, CLUB, DIAMOND, EAST, HEART, NORTH, NOTRUMP, NUM_RANKS, SOUTH,
+    SPADE, WEST,
+};
 use std::env;
 use std::fs;
 use std::time::Instant;
@@ -200,12 +198,7 @@ fn main() {
 
             println!(
                 "{}  {}  {}  {}  {}  {:.2} s N/A M",
-                trump_char,
-                results[0],
-                results[1],
-                results[2],
-                results[3],
-                total_time
+                trump_char, results[0], results[1], results[2], results[3], total_time
             );
         }
     }
@@ -297,7 +290,12 @@ fn print_hand_diagram(hands: &Hands) {
 fn format_hand_with_suits(cards: Cards) -> String {
     let mut parts = Vec::new();
 
-    for (suit, symbol) in [(SPADE, "\u{2660}"), (HEART, "\u{2665}"), (DIAMOND, "\u{2666}"), (CLUB, "\u{2663}")] {
+    for (suit, symbol) in [
+        (SPADE, "\u{2660}"),
+        (HEART, "\u{2665}"),
+        (DIAMOND, "\u{2666}"),
+        (CLUB, "\u{2663}"),
+    ] {
         let suit_cards = cards.suit(suit);
         let suit_str = format_suit_cards(suit_cards, suit);
         parts.push(format!("{} {}", symbol, suit_str));

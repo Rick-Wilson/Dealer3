@@ -7,7 +7,7 @@
 //!
 //! This allows matching positions that are equivalent due to card equivalence.
 
-use super::cards::{Cards, suit_of, mask_of};
+use super::cards::{mask_of, suit_of, Cards};
 use super::hands::Hands;
 use super::types::*;
 

@@ -9,23 +9,26 @@
 //! - Move ordering heuristics for efficient pruning
 //! - Fast trick estimation for early cutoffs
 
+mod bridge_solver;
+mod cache;
 pub mod cards;
 mod hands;
-pub mod types;
-mod cache;
-mod play;
-mod bridge_solver;
-mod search;
 mod pattern;
+mod play;
+mod search;
+pub mod types;
 
+pub use bridge_solver::{
+    get_node_count, order_follows, order_leads, set_no_pruning, set_no_rank_skip, set_no_tt,
+    set_show_perf, set_xray_limit, OrderedCards, Solver,
+};
 pub use cards::Cards;
 pub use hands::Hands;
-pub use types::{Seat, Suit, NOTRUMP, NUM_SEATS, NUM_SUITS, NUM_RANKS, TOTAL_CARDS, TOTAL_TRICKS};
-pub use types::{SPADE, HEART, DIAMOND, CLUB};
-pub use types::{WEST, NORTH, EAST, SOUTH};
-pub use bridge_solver::{Solver, get_node_count, set_xray_limit, set_no_pruning, set_no_tt, set_no_rank_skip, set_show_perf, order_leads, order_follows, OrderedCards};
-pub use search::{slow_trump_tricks_opponent, CutoffCache};
 pub use pattern::PatternCache;
+pub use search::{slow_trump_tricks_opponent, CutoffCache};
+pub use types::{Seat, Suit, NOTRUMP, NUM_RANKS, NUM_SEATS, NUM_SUITS, TOTAL_CARDS, TOTAL_TRICKS};
+pub use types::{CLUB, DIAMOND, HEART, SPADE};
+pub use types::{EAST, NORTH, SOUTH, WEST};
 
 #[cfg(test)]
 mod tests;

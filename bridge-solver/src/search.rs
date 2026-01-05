@@ -7,13 +7,15 @@
 
 use super::cards::*;
 use super::hands::Hands;
-use super::pattern::{Shape, RelativeHands, PatternCache, Pattern, Bounds, compute_pattern_hands};
+use super::pattern::{compute_pattern_hands, Bounds, Pattern, PatternCache, RelativeHands, Shape};
 use super::play::*;
 use super::types::*;
 use std::sync::atomic::Ordering;
 
 // Re-export atomic counters from bridge_solver module
-use super::bridge_solver::{NODE_COUNT, XRAY_COUNT, XRAY_LIMIT, NO_PRUNING, NO_TT, NO_RANK_SKIP, xray_should_log};
+use super::bridge_solver::{
+    xray_should_log, NODE_COUNT, NO_PRUNING, NO_RANK_SKIP, NO_TT, XRAY_COUNT, XRAY_LIMIT,
+};
 
 /// Search result - NS tricks and rank winners (cards whose rank affected the outcome)
 #[derive(Clone, Copy, Default)]
@@ -166,10 +168,7 @@ impl CutoffCache {
 }
 
 /// Hash constants (matching C++ hash_rand values)
-const HASH_RAND: [u64; 2] = [
-    0x9b8b4567327b23c7,
-    0x643c986966334873,
-];
+const HASH_RAND: [u64; 2] = [0x9b8b4567327b23c7, 0x643c986966334873];
 
 /// Compute hash for cutoff cache (matches C++ BuildCutoffIndex)
 /// Uses 2 keys: cutoff_index[0] and cutoff_index[1]
@@ -223,7 +222,9 @@ fn build_cutoff_index_debug(
 /// Format a card as a string
 fn card_name(card: usize) -> String {
     const SUITS: [char; 4] = ['S', 'H', 'D', 'C'];
-    const RANKS: [char; 13] = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
+    const RANKS: [char; 13] = [
+        'A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2',
+    ];
     let suit = suit_of(card);
     let rank = rank_of(card);
     format!("{}{}", SUITS[suit], RANKS[12 - rank])
@@ -322,16 +323,26 @@ impl<'a> Search<'a> {
     /// Main entry point - search with given beta (null-window)
     pub fn search(&mut self, beta: i8) -> u8 {
         #[cfg(feature = "debug_search")]
-        eprintln!("Search::search beta={} num_tricks={} hand_sizes=[{},{},{},{}]",
-                  beta, self.num_tricks,
-                  self.hands[0].size(), self.hands[1].size(),
-                  self.hands[2].size(), self.hands[3].size());
+        eprintln!(
+            "Search::search beta={} num_tricks={} hand_sizes=[{},{},{},{}]",
+            beta,
+            self.num_tricks,
+            self.hands[0].size(),
+            self.hands[1].size(),
+            self.hands[2].size(),
+            self.hands[3].size()
+        );
         let result = self.search_with_cache(0, beta);
         #[cfg(feature = "debug_search")]
-        eprintln!("Search::search DONE beta={} result={} hand_sizes=[{},{},{},{}]",
-                  beta, result.ns_tricks,
-                  self.hands[0].size(), self.hands[1].size(),
-                  self.hands[2].size(), self.hands[3].size());
+        eprintln!(
+            "Search::search DONE beta={} result={} hand_sizes=[{},{},{},{}]",
+            beta,
+            result.ns_tricks,
+            self.hands[0].size(),
+            self.hands[1].size(),
+            self.hands[2].size(),
+            self.hands[3].size()
+        );
         result.ns_tricks
     }
 
@@ -357,8 +368,10 @@ impl<'a> Search<'a> {
             self.plays[depth].ns_tricks_won = prev_ns_tricks;
             self.plays[depth].seat_to_play = next_seat(prev_seat);
             #[cfg(feature = "debug_search")]
-            eprintln!("search_with_cache depth={} mid-trick: ns_tricks={} seat={}",
-                      depth, prev_ns_tricks, self.plays[depth].seat_to_play);
+            eprintln!(
+                "search_with_cache depth={} mid-trick: ns_tricks={} seat={}",
+                depth, prev_ns_tricks, self.plays[depth].seat_to_play
+            );
             return self.evaluate_playable_cards(depth, beta);
         }
 
@@ -417,18 +430,27 @@ impl<'a> Search<'a> {
 
         // Quick bounds check
         if ns_tricks_won as i8 >= beta {
-            return SearchResult { ns_tricks: ns_tricks_won, rank_winners: Cards::new() };
+            return SearchResult {
+                ns_tricks: ns_tricks_won,
+                rank_winners: Cards::new(),
+            };
         }
         let remaining = self.num_tricks - trick_idx;
         if (ns_tricks_won as usize + remaining) < beta as usize {
-            return SearchResult { ns_tricks: ns_tricks_won + remaining as u8, rank_winners: Cards::new() };
+            return SearchResult {
+                ns_tricks: ns_tricks_won + remaining as u8,
+                rank_winners: Cards::new(),
+            };
         }
 
         // Last trick optimization
         if remaining == 1 {
             let result = self.collect_last_trick(depth);
             #[cfg(feature = "debug_search")]
-            eprintln!("  collect_last_trick depth={} ns_tricks={} -> result={}", depth, ns_tricks_won, result.ns_tricks);
+            eprintln!(
+                "  collect_last_trick depth={} ns_tricks={} -> result={}",
+                depth, ns_tricks_won, result.ns_tricks
+            );
             return result;
         }
 
@@ -440,7 +462,9 @@ impl<'a> Search<'a> {
         if depth == 0 {
             // Initial trick - compute shape from scratch
             self.tricks[trick_idx].shape = Shape::from_hands(self.hands);
-            self.tricks[trick_idx].relative_hands.compute(self.hands, all_cards);
+            self.tricks[trick_idx]
+                .relative_hands
+                .compute(self.hands, all_cards);
         } else {
             // Update shape and relative hands from previous trick
             let prev_trick_idx = trick_idx - 1;
@@ -459,7 +483,9 @@ impl<'a> Search<'a> {
 
             // Update relative hands
             self.tricks[trick_idx].relative_hands = self.tricks[prev_trick_idx].relative_hands;
-            self.tricks[trick_idx].relative_hands.update(self.hands, prev_all_cards, all_cards);
+            self.tricks[trick_idx]
+                .relative_hands
+                .update(self.hands, prev_all_cards, all_cards);
         }
 
         // Pattern cache lookup (matching C++ common_bounds_cache)
@@ -491,7 +517,10 @@ impl<'a> Search<'a> {
                                 new_pattern.hands[EAST].value(), new_pattern.hands[SOUTH].value()
                             );
                         }
-                        return SearchResult { ns_tricks: adj_lower as u8, rank_winners };
+                        return SearchResult {
+                            ns_tricks: adj_lower as u8,
+                            rank_winners,
+                        };
                     }
                     if adj_upper < beta {
                         if xray_should_log() {
@@ -500,7 +529,10 @@ impl<'a> Search<'a> {
                                 depth, seat_to_play, beta, ns_tricks_won, bounds.lower, bounds.upper, adj_upper
                             );
                         }
-                        return SearchResult { ns_tricks: adj_upper as u8, rank_winners };
+                        return SearchResult {
+                            ns_tricks: adj_upper as u8,
+                            rank_winners,
+                        };
                     }
                     pattern_cutoff = true;
                 }
@@ -542,7 +574,10 @@ impl<'a> Search<'a> {
             entry.pattern.update(new_pattern);
 
             // Return with extended_rank_winners instead of raw rank_winners
-            return SearchResult { ns_tricks: result.ns_tricks, rank_winners: extended_rank_winners };
+            return SearchResult {
+                ns_tricks: result.ns_tricks,
+                rank_winners: extended_rank_winners,
+            };
         }
 
         result
@@ -569,10 +604,16 @@ impl<'a> Search<'a> {
             }
 
             if is_ns(seat_to_play) && ns_tricks_won as usize + fast >= beta as usize {
-                return SearchResult { ns_tricks: (ns_tricks_won as usize + fast) as u8, rank_winners: fast_rank_winners };
+                return SearchResult {
+                    ns_tricks: (ns_tricks_won as usize + fast) as u8,
+                    rank_winners: fast_rank_winners,
+                };
             }
             if !is_ns(seat_to_play) && (ns_tricks_won as usize + remaining - fast) < beta as usize {
-                return SearchResult { ns_tricks: (ns_tricks_won as usize + remaining - fast) as u8, rank_winners: fast_rank_winners };
+                return SearchResult {
+                    ns_tricks: (ns_tricks_won as usize + remaining - fast) as u8,
+                    rank_winners: fast_rank_winners,
+                };
             }
 
             // Slow tricks pruning
@@ -606,12 +647,18 @@ impl<'a> Search<'a> {
                 if is_ns(seat_to_play) {
                     // NS to play, check if EW's slow tricks limit NS
                     if (ns_tricks_won as usize + remaining - slow) < beta as usize {
-                        return SearchResult { ns_tricks: (ns_tricks_won as usize + remaining - slow) as u8, rank_winners: slow_rank_winners };
+                        return SearchResult {
+                            ns_tricks: (ns_tricks_won as usize + remaining - slow) as u8,
+                            rank_winners: slow_rank_winners,
+                        };
                     }
                 } else {
                     // EW to play, check if NS's slow tricks give them enough
                     if ns_tricks_won as usize + slow >= beta as usize {
-                        return SearchResult { ns_tricks: (ns_tricks_won as usize + slow) as u8, rank_winners: slow_rank_winners };
+                        return SearchResult {
+                            ns_tricks: (ns_tricks_won as usize + slow) as u8,
+                            rank_winners: slow_rank_winners,
+                        };
                     }
                 }
             }
@@ -640,14 +687,20 @@ impl<'a> Search<'a> {
         let playable = get_playable_cards(self.hands, seat_to_play, lead_suit);
 
         if playable.is_empty() {
-            return SearchResult { ns_tricks: ns_tricks_won, rank_winners: Cards::new() };
+            return SearchResult {
+                ns_tricks: ns_tricks_won,
+                rank_winners: Cards::new(),
+            };
         }
 
         // XRAY logging for playable cards
         if xray_should_log() {
             eprintln!(
                 "PLAYABLE: depth={} seat={} count={} cards={:x}",
-                depth, seat_to_play, playable.size(), playable.value()
+                depth,
+                seat_to_play,
+                playable.size(),
+                playable.value()
             );
         }
 
@@ -660,7 +713,10 @@ impl<'a> Search<'a> {
         // Get winning card/seat for cutoff index (only valid when not at trick start)
         let (winning_card, winning_seat) = if card_in_trick > 0 {
             let winning_play_idx = self.plays[depth - 1].winning_play;
-            (self.plays[winning_play_idx].card_played, self.plays[winning_play_idx].seat_to_play)
+            (
+                self.plays[winning_play_idx].card_played,
+                self.plays[winning_play_idx].seat_to_play,
+            )
         } else {
             (0, 0) // Not used at trick start
         };
@@ -698,7 +754,9 @@ impl<'a> Search<'a> {
         if xray_should_log() {
             let mut playable_str = String::new();
             for card in playable.iter() {
-                if !playable_str.is_empty() { playable_str.push(' '); }
+                if !playable_str.is_empty() {
+                    playable_str.push(' ');
+                }
                 playable_str.push_str(&card_name(card));
             }
             let cutoff_str = match cutoff_card {
@@ -707,7 +765,11 @@ impl<'a> Search<'a> {
             };
             eprintln!(
                 "MOVE_ORDER_BEFORE: iter={} depth={} play=[{}] playable=[{}] cutoff_cards=[{}]",
-                iter_count, depth, self.format_play_sequence(depth), playable_str, cutoff_str
+                iter_count,
+                depth,
+                self.format_play_sequence(depth),
+                playable_str,
+                cutoff_str
             );
         }
 
@@ -727,7 +789,15 @@ impl<'a> Search<'a> {
 
         if !has_cutoff {
             // No cutoff card - order all playable cards and clear remaining
-            Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
+            Self::order_cards_static(
+                &mut ordered_cards,
+                depth,
+                remaining_playable,
+                &self.plays,
+                &self.tricks,
+                self.hands,
+                self.trump,
+            );
             remaining_playable = Cards::new();
         }
 
@@ -735,12 +805,16 @@ impl<'a> Search<'a> {
         if xray_should_log() {
             let mut ordered_str = String::new();
             for i in 0..ordered_cards.len() {
-                if !ordered_str.is_empty() { ordered_str.push(' '); }
+                if !ordered_str.is_empty() {
+                    ordered_str.push(' ');
+                }
                 ordered_str.push_str(&card_name(ordered_cards.card(i)));
             }
             let mut remaining_str = String::new();
             for card in remaining_playable.iter() {
-                if !remaining_str.is_empty() { remaining_str.push(' '); }
+                if !remaining_str.is_empty() {
+                    remaining_str.push(' ');
+                }
                 remaining_str.push_str(&card_name(card));
             }
             eprintln!(
@@ -751,11 +825,21 @@ impl<'a> Search<'a> {
 
         #[cfg(feature = "debug_search")]
         {
-            eprintln!("evaluate_playable depth={} seat={} playable={:x} ordered_count={}",
-                      depth, seat_to_play, playable.value(), ordered_cards.len());
+            eprintln!(
+                "evaluate_playable depth={} seat={} playable={:x} ordered_count={}",
+                depth,
+                seat_to_play,
+                playable.value(),
+                ordered_cards.len()
+            );
             for i in 0..ordered_cards.len() {
                 let c = ordered_cards.card(i);
-                eprintln!("  ordered[{}] = {} (have={})", i, card_name(c), self.hands[seat_to_play].have(c));
+                eprintln!(
+                    "  ordered[{}] = {} (have={})",
+                    i,
+                    card_name(c),
+                    self.hands[seat_to_play].have(c)
+                );
             }
         }
 
@@ -763,12 +847,17 @@ impl<'a> Search<'a> {
         if xray_should_log() {
             let mut cards_str = String::new();
             for i in 0..ordered_cards.len() {
-                if i > 0 { cards_str.push(' '); }
+                if i > 0 {
+                    cards_str.push(' ');
+                }
                 cards_str.push_str(&card_name(ordered_cards.card(i)));
             }
             eprintln!(
                 "ORDERED: depth={} playable={:x} count={} cards=[{}]",
-                depth, playable.value(), ordered_cards.len(), cards_str
+                depth,
+                playable.value(),
+                ordered_cards.len(),
+                cards_str
             );
         }
 
@@ -776,7 +865,11 @@ impl<'a> Search<'a> {
         let my_hand = self.hands[seat_to_play];
 
         // Search loop
-        let mut best = if maximizing { 0u8 } else { self.num_tricks as u8 };
+        let mut best = if maximizing {
+            0u8
+        } else {
+            self.num_tricks as u8
+        };
         let mut tried_cards = Cards::new();
         let mut rank_winners = Cards::new();
         // min_relevant_ranks[suit] = minimum rank that matters for this suit (0 = TWO, 12 = ACE)
@@ -794,7 +887,15 @@ impl<'a> Search<'a> {
                 tried_cards.add(card);
                 // C++ behavior: after trying first card, order remaining playable cards
                 if !remaining_playable.is_empty() {
-                    Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
+                    Self::order_cards_static(
+                        &mut ordered_cards,
+                        depth,
+                        remaining_playable,
+                        &self.plays,
+                        &self.tricks,
+                        self.hands,
+                        self.trump,
+                    );
                     remaining_playable = Cards::new();
                 }
                 i += 1;
@@ -806,7 +907,15 @@ impl<'a> Search<'a> {
                 tried_cards.add(card);
                 // C++ behavior: after trying first card, order remaining playable cards
                 if !remaining_playable.is_empty() {
-                    Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
+                    Self::order_cards_static(
+                        &mut ordered_cards,
+                        depth,
+                        remaining_playable,
+                        &self.plays,
+                        &self.tricks,
+                        self.hands,
+                        self.trump,
+                    );
                     remaining_playable = Cards::new();
                 }
                 i += 1;
@@ -843,7 +952,10 @@ impl<'a> Search<'a> {
                     if cutoff_card != Some(card) && !NO_TT.load(Ordering::Relaxed) {
                         self.cutoff_cache.store(cutoff_hash, seat_to_play, card);
                     }
-                    return SearchResult { ns_tricks: best, rank_winners: branch_rank_winners };
+                    return SearchResult {
+                        ns_tricks: best,
+                        rank_winners: branch_rank_winners,
+                    };
                 }
             } else {
                 if score < best {
@@ -861,7 +973,10 @@ impl<'a> Search<'a> {
                     if cutoff_card != Some(card) && !NO_TT.load(Ordering::Relaxed) {
                         self.cutoff_cache.store(cutoff_hash, seat_to_play, card);
                     }
-                    return SearchResult { ns_tricks: best, rank_winners: branch_rank_winners };
+                    return SearchResult {
+                        ns_tricks: best,
+                        rank_winners: branch_rank_winners,
+                    };
                 }
             }
 
@@ -899,14 +1014,25 @@ impl<'a> Search<'a> {
 
             // C++ behavior: after trying a card, order remaining playable cards
             if !remaining_playable.is_empty() {
-                Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
+                Self::order_cards_static(
+                    &mut ordered_cards,
+                    depth,
+                    remaining_playable,
+                    &self.plays,
+                    &self.tricks,
+                    self.hands,
+                    self.trump,
+                );
                 remaining_playable = Cards::new();
             }
 
             i += 1;
         }
 
-        SearchResult { ns_tricks: best, rank_winners }
+        SearchResult {
+            ns_tricks: best,
+            rank_winners,
+        }
     }
 
     /// Play a card and continue search
@@ -939,8 +1065,13 @@ impl<'a> Search<'a> {
             self.tricks[trick_idx].lead_suit = suit_of(card);
             self.plays[depth].winning_play = depth;
             #[cfg(feature = "debug_search")]
-            eprintln!("  depth={} {} leads {} winning_play={}",
-                      depth, seat_to_play, card_name(card), depth);
+            eprintln!(
+                "  depth={} {} leads {} winning_play={}",
+                depth,
+                seat_to_play,
+                card_name(card),
+                depth
+            );
         } else {
             // Following - check if we beat the current winner
             let current_winner_idx = self.plays[depth - 1].winning_play;
@@ -949,13 +1080,25 @@ impl<'a> Search<'a> {
             if self.wins_over(card, current_winner_card, self.tricks[trick_idx].lead_suit) {
                 self.plays[depth].winning_play = depth;
                 #[cfg(feature = "debug_search")]
-                eprintln!("  depth={} {} plays {} WINS over {} winning_play={}",
-                          depth, seat_to_play, card_name(card), card_name(current_winner_card), depth);
+                eprintln!(
+                    "  depth={} {} plays {} WINS over {} winning_play={}",
+                    depth,
+                    seat_to_play,
+                    card_name(card),
+                    card_name(current_winner_card),
+                    depth
+                );
             } else {
                 self.plays[depth].winning_play = current_winner_idx;
                 #[cfg(feature = "debug_search")]
-                eprintln!("  depth={} {} plays {} loses to {} winning_play={}",
-                          depth, seat_to_play, card_name(card), card_name(current_winner_card), current_winner_idx);
+                eprintln!(
+                    "  depth={} {} plays {} loses to {} winning_play={}",
+                    depth,
+                    seat_to_play,
+                    card_name(card),
+                    card_name(current_winner_card),
+                    current_winner_idx
+                );
             }
         }
 
@@ -996,19 +1139,36 @@ impl<'a> Search<'a> {
         {
             let after_restore = self.hands[seat_to_play].size();
             if after_restore != before_restore + 1 {
-                eprintln!("ERROR: add didn't work! seat={} card={} before={} after={}",
-                          seat_to_play, card_name(card), before_restore, after_restore);
+                eprintln!(
+                    "ERROR: add didn't work! seat={} card={} before={} after={}",
+                    seat_to_play,
+                    card_name(card),
+                    before_restore,
+                    after_restore
+                );
             }
         }
 
         #[cfg(feature = "debug_search")]
-        eprintln!("  depth={} {} played {} result={}", depth, seat_to_play, card_name(card), result.ns_tricks);
+        eprintln!(
+            "  depth={} {} played {} result={}",
+            depth,
+            seat_to_play,
+            card_name(card),
+            result.ns_tricks
+        );
 
         result
     }
 
     /// IsEquivalent check matching C++ Trick::IsEquivalent
-    fn is_equivalent(&self, card: usize, tried_suit: Cards, my_hand: Cards, all_cards: Cards) -> bool {
+    fn is_equivalent(
+        &self,
+        card: usize,
+        tried_suit: Cards,
+        my_hand: Cards,
+        all_cards: Cards,
+    ) -> bool {
         let mut result = false;
 
         if !tried_suit.is_empty() {
@@ -1121,7 +1281,10 @@ impl<'a> Search<'a> {
             rank_winners.add(winning_card);
         }
 
-        SearchResult { ns_tricks, rank_winners }
+        SearchResult {
+            ns_tricks,
+            rank_winners,
+        }
     }
 
     /// Order cards for move ordering - calls order_leads or order_follows
@@ -1134,7 +1297,7 @@ impl<'a> Search<'a> {
         hands: &Hands,
         trump: usize,
     ) {
-        use super::bridge_solver::{order_leads, order_follows};
+        use super::bridge_solver::{order_follows, order_leads};
 
         let trick_idx = depth / 4;
         let card_in_trick = depth & 3;
@@ -1162,11 +1325,11 @@ impl<'a> Search<'a> {
                 let s1 = suit_of(c1);
                 let s2 = suit_of(c2);
                 if s1 == s2 {
-                    c1 < c2  // Lower card index = higher rank
+                    c1 < c2 // Lower card index = higher rank
                 } else if s1 == trump {
-                    true  // c1 is trump, c2 is not
+                    true // c1 is trump, c2 is not
                 } else {
-                    false  // c1 is not trump, can't beat c2
+                    false // c1 is not trump, can't beat c2
                 }
             };
 
@@ -1335,8 +1498,10 @@ impl<'a> Search<'a> {
                 }
             }
 
-            my_tricks += Self::suit_fast_tricks(my_suit, my_winners, pd_suit, pd_winners, &mut my_entry);
-            pd_tricks += Self::suit_fast_tricks(pd_suit, pd_winners, my_suit, my_winners, &mut pd_entry);
+            my_tricks +=
+                Self::suit_fast_tricks(my_suit, my_winners, pd_suit, pd_winners, &mut my_entry);
+            pd_tricks +=
+                Self::suit_fast_tricks(pd_suit, pd_winners, my_suit, my_winners, &mut pd_entry);
         }
 
         let side_suit_tricks = if pd_entry {
@@ -1347,7 +1512,10 @@ impl<'a> Search<'a> {
         };
 
         // Total fast tricks = trump tricks + side suit tricks, capped by our hand size
-        ((trump_tricks + side_suit_tricks).min(my_hand.size()), rank_winners)
+        (
+            (trump_tricks + side_suit_tricks).min(my_hand.size()),
+            rank_winners,
+        )
     }
 
     /// Fast tricks estimation - returns (count, rank_winners)
@@ -1454,8 +1622,9 @@ impl<'a> Search<'a> {
         // leading=false in the call from SearchAtTrickStart for slow tricks
         let leading = false;
 
-        if (pd_has_k_strictly && lho_has_a) ||
-           (my_has_k_strictly && rho_has_a && (!leading || num_tricks >= 3)) {
+        if (pd_has_k_strictly && lho_has_a)
+            || (my_has_k_strictly && rho_has_a && (!leading || num_tricks >= 3))
+        {
             return (1, ak_winners);
         }
 

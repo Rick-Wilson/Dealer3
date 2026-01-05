@@ -127,15 +127,35 @@ pub fn order_leads(
         let all_suit = all_cards.suit(suit);
 
         // Get relative ranks (A, K, Q, J, T) in this suit
-        let a = if !all_suit.is_empty() { all_suit.top() } else { continue };
+        let a = if !all_suit.is_empty() {
+            all_suit.top()
+        } else {
+            continue;
+        };
         let all_minus_a = all_suit.different(Cards::from_bits(1u64 << a));
-        let k = if !all_minus_a.is_empty() { all_minus_a.top() } else { a };
+        let k = if !all_minus_a.is_empty() {
+            all_minus_a.top()
+        } else {
+            a
+        };
         let all_minus_ak = all_minus_a.different(Cards::from_bits(1u64 << k));
-        let q = if !all_minus_ak.is_empty() { all_minus_ak.top() } else { k };
+        let q = if !all_minus_ak.is_empty() {
+            all_minus_ak.top()
+        } else {
+            k
+        };
         let all_minus_akq = all_minus_ak.different(Cards::from_bits(1u64 << q));
-        let j = if !all_minus_akq.is_empty() { all_minus_akq.top() } else { q };
+        let j = if !all_minus_akq.is_empty() {
+            all_minus_akq.top()
+        } else {
+            q
+        };
         let all_minus_akqj = all_minus_akq.different(Cards::from_bits(1u64 << j));
-        let t = if !all_minus_akqj.is_empty() { all_minus_akqj.top() } else { j };
+        let t = if !all_minus_akqj.is_empty() {
+            all_minus_akqj.top()
+        } else {
+            j
+        };
 
         let our_suits = my_suit.union(pd_suit);
 
@@ -150,8 +170,12 @@ pub fn order_leads(
             jt.add(t);
 
             if (pd_suit.have(k) && lho_suit.have(a))
-                || (pd_suit.have(a) && lho_suit.have(k) && (pd_suit.have(q) || our_suits.include(qj)))
-                || (pd_suit.have(k) && lho_suit.have(q) && (pd_suit.have(j) || our_suits.include(jt)))
+                || (pd_suit.have(a)
+                    && lho_suit.have(k)
+                    && (pd_suit.have(q) || our_suits.include(qj)))
+                || (pd_suit.have(k)
+                    && lho_suit.have(q)
+                    && (pd_suit.have(j) || our_suits.include(jt)))
             {
                 good_leads.add(my_suit.top());
                 if my_suit.size() > 1 {
@@ -181,7 +205,10 @@ pub fn order_leads(
         akq.add(a);
         akq.add(k);
         akq.add(q);
-        if !lho_suit.is_empty() && !rho_suit.is_empty() && partnership_cards.intersect(akq).size() >= 2 {
+        if !lho_suit.is_empty()
+            && !rho_suit.is_empty()
+            && partnership_cards.intersect(akq).size() >= 2
+        {
             high_leads.add(my_suit.top());
             if my_suit.size() > 1 {
                 high_leads.add(my_suit.bottom());
@@ -190,7 +217,10 @@ pub fn order_leads(
         }
 
         // Check for ruff leads (partner can ruff)
-        if is_suit_contract && pd_suit.is_empty() && !lho_suit.is_empty() && !rho_suit.is_empty()
+        if is_suit_contract
+            && pd_suit.is_empty()
+            && !lho_suit.is_empty()
+            && !rho_suit.is_empty()
             && pd_hand.suit(trump).size() > 0
             && pd_hand.suit(trump).size() <= playable.suit(trump).size()
             && my_suit.bottom() != a
@@ -305,9 +335,7 @@ pub fn order_follows(
         let lower_cards = my_suit.different(higher_cards);
 
         // Order higher cards based on whether we need to beat LHO
-        if trick_ending
-            || lho_suit.is_empty()
-            || higher_rank(higher_cards.bottom(), lho_suit.top())
+        if trick_ending || lho_suit.is_empty() || higher_rank(higher_cards.bottom(), lho_suit.top())
         {
             // We can safely play low among our winning cards
             ordered.add_reversed(higher_cards);
@@ -322,7 +350,11 @@ pub fn order_follows(
 
     // Not following suit - ruff or discard
     let is_suit_contract = trump < NOTRUMP;
-    let my_trumps = if is_suit_contract { playable.suit(trump) } else { Cards::new() };
+    let my_trumps = if is_suit_contract {
+        playable.suit(trump)
+    } else {
+        Cards::new()
+    };
 
     if !my_trumps.is_empty() {
         // Can ruff
@@ -330,7 +362,9 @@ pub fn order_follows(
 
         // Check if partner is winning and can hold the trick
         let partner_winning = winning_seat == partner(seat);
-        if partner_winning && (trick_ending || (!lho_suit.is_empty() && wins_over(winning_card, lho_suit.top()))) {
+        if partner_winning
+            && (trick_ending || (!lho_suit.is_empty() && wins_over(winning_card, lho_suit.top())))
+        {
             // Partner can win - don't ruff, discard instead
         } else if suit_of(winning_card) == trump {
             // Someone already trumped - try to overruff if possible
@@ -492,8 +526,12 @@ impl Solver {
             } else {
                 0.0
             };
-            eprintln!("[PERF] iterations={}, time={:.3}s, ns/iter={:.1}",
-                      iterations, elapsed.as_secs_f64(), ns_per_iter);
+            eprintln!(
+                "[PERF] iterations={}, time={:.3}s, ns/iter={:.1}",
+                iterations,
+                elapsed.as_secs_f64(),
+                ns_per_iter
+            );
         }
         result
     }
@@ -584,9 +622,7 @@ mod tests {
     fn test_solver_1_trick() {
         // Single trick - NS has ace, EW has king
         // N: SA  E: SK  S: S2  W: S3
-        let hands = Hands::from_pbn(
-            "N:A... K... 2... 3..."
-        ).unwrap();
+        let hands = Hands::from_pbn("N:A... K... 2... 3...").unwrap();
 
         // West leads - EW has the lead but NS has the ace
         let solver = Solver::new(hands, NOTRUMP, WEST);
@@ -598,9 +634,7 @@ mod tests {
     fn test_solver_1_trick_ew_wins() {
         // Single trick - EW has ace
         // N: SK  E: SA  S: S2  W: S3
-        let hands = Hands::from_pbn(
-            "N:K... A... 2... 3..."
-        ).unwrap();
+        let hands = Hands::from_pbn("N:K... A... 2... 3...").unwrap();
 
         // West leads
         let solver = Solver::new(hands, NOTRUMP, WEST);
@@ -612,9 +646,7 @@ mod tests {
     fn test_solver_2_tricks() {
         // Two tricks - NS has both aces
         // N: SA,HA  E: SK,HK  S: S2,H2  W: S3,H3
-        let hands = Hands::from_pbn(
-            "N:A.A.. K.K.. 2.2.. 3.3.."
-        ).unwrap();
+        let hands = Hands::from_pbn("N:A.A.. K.K.. 2.2.. 3.3..").unwrap();
 
         // West leads
         let solver = Solver::new(hands, NOTRUMP, WEST);
@@ -625,9 +657,7 @@ mod tests {
     #[test]
     fn test_solver_4_tricks() {
         // Four tricks - NS has all aces
-        let hands = Hands::from_pbn(
-            "N:A.A.A.A K.K.K.K 2.2.2.2 3.3.3.3"
-        ).unwrap();
+        let hands = Hands::from_pbn("N:A.A.A.A K.K.K.K 2.2.2.2 3.3.3.3").unwrap();
 
         // West leads
         let solver = Solver::new(hands, NOTRUMP, WEST);
@@ -638,9 +668,7 @@ mod tests {
     #[test]
     fn test_solver_8_tricks() {
         // 8 tricks - NS has AK in each suit
-        let hands = Hands::from_pbn(
-            "N:AK.AK.AK.AK QJ.QJ.QJ.QJ 32.32.32.32 T9.T9.T9.T9"
-        ).unwrap();
+        let hands = Hands::from_pbn("N:AK.AK.AK.AK QJ.QJ.QJ.QJ 32.32.32.32 T9.T9.T9.T9").unwrap();
 
         // West leads
         let start = std::time::Instant::now();
@@ -655,8 +683,9 @@ mod tests {
     fn test_solver_cold_13() {
         // NS has all top cards
         let hands = Hands::from_pbn(
-            "N:AKQJ.AKQ.AKQ.AKQ T987.JT9.JT9.JT9 6543.876.876.876 2.5432.5432.5432"
-        ).unwrap();
+            "N:AKQJ.AKQ.AKQ.AKQ T987.JT9.JT9.JT9 6543.876.876.876 2.5432.5432.5432",
+        )
+        .unwrap();
 
         eprintln!("Hands parsed, starting solve...");
         let solver = Solver::new(hands, NOTRUMP, WEST);
@@ -671,8 +700,9 @@ mod tests {
     fn test_solver_cold_0() {
         // EW has all top cards
         let hands = Hands::from_pbn(
-            "N:T987.JT9.JT9.JT9 AKQJ.AKQ.AKQ.AKQ 2.5432.5432.5432 6543.876.876.876"
-        ).unwrap();
+            "N:T987.JT9.JT9.JT9 AKQJ.AKQ.AKQ.AKQ 2.5432.5432.5432 6543.876.876.876",
+        )
+        .unwrap();
 
         let solver = Solver::new(hands, NOTRUMP, WEST);
         let ns_tricks = solver.solve();
@@ -684,8 +714,9 @@ mod tests {
     fn test_solver_9_tricks() {
         // From test case
         let hands = Hands::from_pbn(
-            "N:AKQT3.J6.KJ42.95 652.AK42.AQ87.T4 J74.QT95.T.AK863 98.873.9653.QJ72"
-        ).unwrap();
+            "N:AKQT3.J6.KJ42.95 652.AK42.AQ87.T4 J74.QT95.T.AK863 98.873.9653.QJ72",
+        )
+        .unwrap();
 
         let start = std::time::Instant::now();
         let solver = Solver::new(hands, NOTRUMP, WEST);
@@ -699,15 +730,20 @@ mod tests {
     fn test_solver_13card_north_only() {
         // Same 13-card deal, but only test North leading
         let hands = Hands::from_pbn(
-            "N:AKQT3.J6.KJ42.95 652.AK42.AQ87.T4 J74.QT95.T.AK863 98.873.9653.QJ72"
-        ).unwrap();
+            "N:AKQT3.J6.KJ42.95 652.AK42.AQ87.T4 J74.QT95.T.AK863 98.873.9653.QJ72",
+        )
+        .unwrap();
 
         let start = std::time::Instant::now();
         let solver = Solver::new(hands, NOTRUMP, NORTH);
         let ns_tricks = solver.solve();
         let nodes = get_node_count();
-        eprintln!("13-card North lead test: {} tricks, {:?}, {} nodes", ns_tricks, start.elapsed(), nodes);
+        eprintln!(
+            "13-card North lead test: {} tricks, {:?}, {} nodes",
+            ns_tricks,
+            start.elapsed(),
+            nodes
+        );
         // Note: Expected value needs verification with C++ solver
     }
-
 }
