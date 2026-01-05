@@ -246,3 +246,17 @@ diff dealer3.out dealer_original.out
 2. Check `docs/implementation_roadmap.md` for next priorities
 3. Run `cargo test` to verify all tests passing
 4. Check git status to see current branch and changes
+
+## When Finishing a Task
+
+When you finish work in this workspace, always end your final response
+with exactly one of the following lines, on its own line, as the very last output:
+
+✅ Claude task completed successfully
+❌ Claude task failed
+🛑 Claude task stopped
+
+Use "🛑 Claude task stopped" when waiting for user input or when further
+progress is blocked by missing information.
+
+Do not add any text after the marker.
