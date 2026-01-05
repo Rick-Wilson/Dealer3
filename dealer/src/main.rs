@@ -14,14 +14,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[command(name = "dealer")]
 #[command(about = "Bridge hand generator with constraint evaluation", long_about = None)]
 struct Args {
+    /// Input file containing dealer script (if not provided, reads from stdin)
+    #[arg(value_name = "INPUT_FILE")]
+    input_file: Option<String>,
+
     /// Number of deals to produce (defaults to 40, or value from input file if not specified)
-    /// Mutually exclusive with --generate
-    #[arg(short = 'p', long = "produce", conflicts_with = "generate")]
+    /// Can be combined with --generate to limit both produced and generated counts
+    #[arg(short = 'p', long = "produce")]
     produce: Option<usize>,
 
     /// Maximum number of hands to generate (defaults to 1000000)
-    /// Reports all matching deals found. Mutually exclusive with --produce
-    #[arg(short = 'g', long = "generate", conflicts_with = "produce")]
+    /// Can be combined with --produce to limit both generated and produced counts
+    #[arg(short = 'g', long = "generate")]
     generate: Option<usize>,
 
     /// Random seed for generation (defaults to current time)
@@ -415,11 +419,20 @@ fn main() {
         csv_writer = Some(BufWriter::new(file));
     }
 
-    // Read constraint from stdin
+    // Read constraint from input file or stdin
     let mut constraint_str = String::new();
-    io::stdin()
-        .read_to_string(&mut constraint_str)
-        .expect("Failed to read constraint from stdin");
+    if let Some(ref input_file) = args.input_file {
+        std::fs::File::open(input_file)
+            .and_then(|mut f| f.read_to_string(&mut constraint_str))
+            .unwrap_or_else(|e| {
+                eprintln!("Error reading input file '{}': {}", input_file, e);
+                std::process::exit(1);
+            });
+    } else {
+        io::stdin()
+            .read_to_string(&mut constraint_str)
+            .expect("Failed to read constraint from stdin");
+    }
 
     let constraint_str = constraint_str.trim();
 
@@ -513,17 +526,21 @@ fn main() {
         }
     }
 
-    // Determine mode: generate or produce
-    let generate_mode = args.generate.is_some();
-    let max_generate = args.generate.unwrap_or(1_000_000); // dealer.exe default for -g
-
-    // Command-line flags override input file values
-    // In generate mode, produce_count is only used if specified in input file
-    let produce_count = if generate_mode {
-        produce_count_from_input.unwrap_or(usize::MAX) // No limit in generate mode
-    } else {
-        args.produce.or(produce_count_from_input).unwrap_or(40) // dealer.exe default for -p
-    };
+    // Determine limits for generation
+    // -g limits total hands generated, -p limits matching hands produced
+    // When both are specified, stop when either limit is reached
+    // When neither is specified, default to producing 40 hands (dealer.exe default)
+    let max_generate = args.generate.unwrap_or(usize::MAX);
+    let produce_count = args
+        .produce
+        .or(produce_count_from_input)
+        .unwrap_or_else(|| {
+            if args.generate.is_some() {
+                usize::MAX // No produce limit when only -g is specified
+            } else {
+                40 // dealer.exe default for -p
+            }
+        });
 
     let output_format = args
         .format
@@ -618,14 +635,9 @@ fn main() {
     let progress_interval = 10000; // Show progress every 10,000 deals
     let mut last_progress_report = 0;
 
-    // Generate deals until we reach the limit
-    // In produce mode: stop when we've produced enough matching deals
-    // In generate mode: stop when we've generated enough total deals
-    while if generate_mode {
-        generated < max_generate
-    } else {
-        produced < produce_count
-    } {
+    // Generate deals until we reach a limit
+    // Stop when either: we've produced enough matching deals, or generated enough total deals
+    while produced < produce_count && generated < max_generate {
         let deal = generator.generate();
         generated += 1;
 
