@@ -8,6 +8,7 @@ use super::search;
 use super::types::*;
 
 /// Ordered cards container for move ordering
+#[derive(Default)]
 pub struct OrderedCards {
     cards: [u8; TOTAL_TRICKS],
     count: usize,
@@ -56,6 +57,11 @@ impl OrderedCards {
     #[inline]
     pub fn len(&self) -> usize {
         self.count
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
     }
 
     #[inline]
@@ -156,18 +162,18 @@ pub fn order_leads(
         }
 
         // Check for bad leads (high card in front of RHO's higher card)
-        if my_suit.size() >= 2 && rho_suit.size() >= 2 {
-            if (my_suit.have(a) && rho_suit.have(k))
-                || (my_suit.have(k) && rho_suit.have(a) && !partnership_cards.have(q))
-            {
-                if is_suit_contract {
-                    bad_leads.add(my_suit.top());
-                    if my_suit.size() > 1 {
-                        bad_leads.add(my_suit.bottom());
-                    }
+        if my_suit.size() >= 2
+            && rho_suit.size() >= 2
+            && ((my_suit.have(a) && rho_suit.have(k))
+                || (my_suit.have(k) && rho_suit.have(a) && !partnership_cards.have(q)))
+        {
+            if is_suit_contract {
+                bad_leads.add(my_suit.top());
+                if my_suit.size() > 1 {
+                    bad_leads.add(my_suit.bottom());
                 }
-                continue;
             }
+            continue;
         }
 
         // Check for high leads (both sides have A/K/Q)
@@ -225,6 +231,7 @@ pub fn order_leads(
 
 /// Order follow cards (when following suit or discarding)
 /// Matches the C++ OrderCards logic for better move ordering
+#[allow(clippy::too_many_arguments)]
 pub fn order_follows(
     playable: Cards,
     hands: &Hands,
@@ -384,8 +391,8 @@ fn add_discards(ordered: &mut OrderedCards, mut playable: Cards, trump: usize) {
     discards[..num_discards].sort_by(|a, b| b.1.cmp(&a.1));
 
     // Add sorted discards
-    for i in 0..num_discards {
-        ordered.add(discards[i].0);
+    for discard in discards.iter().take(num_discards) {
+        ordered.add(discard.0);
     }
 
     // Add remaining cards

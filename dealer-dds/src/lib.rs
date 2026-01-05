@@ -300,7 +300,7 @@ impl GameState {
         }
 
         // Record play: high 2 bits = position, low 6 bits = card index
-        let encoded = ((player as u8) << 6) | (card.to_index() as u8);
+        let encoded = ((player as u8) << 6) | card.to_index();
         self.play_history[self.plays_count as usize] = encoded;
         self.plays_count += 1;
 

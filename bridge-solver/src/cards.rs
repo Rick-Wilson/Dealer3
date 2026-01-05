@@ -9,7 +9,7 @@ use super::types::*;
 /// Card index lookup tables (initialized at compile time via const fn or lazy)
 /// suit_of[card] = suit, rank_of[card] = rank
 /// card_of[suit][rank] = card index
-
+///
 /// Get suit of a card (0-51 -> 0-3)
 #[inline]
 pub fn suit_of(card: usize) -> Suit {

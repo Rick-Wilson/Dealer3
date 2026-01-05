@@ -298,18 +298,10 @@ impl Pattern {
 }
 
 /// ShapeEntry is what gets stored in the cache
+#[derive(Default)]
 pub struct ShapeEntry {
     pub hash: u64,
     pub pattern: Pattern,
-}
-
-impl Default for ShapeEntry {
-    fn default() -> Self {
-        ShapeEntry {
-            hash: 0,
-            pattern: Pattern::default(),
-        }
-    }
 }
 
 impl ShapeEntry {

@@ -181,6 +181,7 @@ fn hash_cutoff_index(key0: u64, key1: u64) -> u64 {
 
 /// Build cutoff index keys with debug info (returns hash, key0, key1)
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn build_cutoff_index_debug(
     hands: &Hands,
     seat_to_play: Seat,
@@ -457,7 +458,7 @@ impl<'a> Search<'a> {
             self.tricks[trick_idx].shape = shape;
 
             // Update relative hands
-            self.tricks[trick_idx].relative_hands = self.tricks[prev_trick_idx].relative_hands.clone();
+            self.tricks[trick_idx].relative_hands = self.tricks[prev_trick_idx].relative_hands;
             self.tricks[trick_idx].relative_hands.update(self.hands, prev_all_cards, all_cards);
         }
 
@@ -469,13 +470,13 @@ impl<'a> Search<'a> {
             if let Some(entry) = self.pattern_cache.lookup(shape_value, seat_to_play) {
                 // Create pattern from current relative hands for lookup
                 let new_pattern = Pattern::new(
-                    self.tricks[trick_idx].relative_hands.hands.clone(),
+                    self.tricks[trick_idx].relative_hands.hands,
                     Bounds::new(0, remaining as i8),
                 );
                 // Use relative beta for cutoff check (bounds are stored relative to ns_tricks_won)
                 if let Some((matched_hands, bounds)) = entry.lookup(&new_pattern, rel_beta) {
                     // Compute rank_winners from matched pattern (matching C++ GetRankWinners)
-                    let matched_pattern = Pattern::new(matched_hands.clone(), bounds);
+                    let matched_pattern = Pattern::new(*matched_hands, bounds);
                     let rank_winners = matched_pattern.get_rank_winners(all_cards);
 
                     let adj_lower = bounds.lower + ns_tricks_won as i8;
@@ -526,7 +527,7 @@ impl<'a> Search<'a> {
                 result.rank_winners,
             );
 
-            let new_pattern = Pattern::new(pattern_hands.clone(), bounds);
+            let new_pattern = Pattern::new(pattern_hands, bounds);
             if xray_should_log() {
                 eprintln!(
                     "PATTERN_STORE: depth={} seat={} beta={} ns_tricks_won={} result={} bounds=[{},{}] shape={:x} hands=[{:x},{:x},{:x},{:x}] rank_winners={:x}",
