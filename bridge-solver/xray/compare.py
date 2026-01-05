@@ -82,6 +82,11 @@ def parse_args():
         help="Enable xray tracing for N iterations (compares search traces)"
     )
     parser.add_argument(
+        "--xray-full",
+        action="store_true",
+        help="Capture full xray stderr output (not just XRAY lines)"
+    )
+    parser.add_argument(
         "-P", "--no-pruning",
         action="store_true",
         help="Disable fast/slow tricks pruning (for debugging search paths)"

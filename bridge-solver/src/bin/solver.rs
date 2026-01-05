@@ -11,7 +11,7 @@
 
 use bridge_solver::{
     set_no_pruning, set_no_rank_skip, set_no_tt, set_xray_limit, set_show_perf,
-    Cards, Hands, Solver,
+    Cards, Hands, Solver, CutoffCache, PatternCache,
     CLUB, DIAMOND, HEART, NOTRUMP, SPADE,
     EAST, NORTH, SOUTH, WEST,
     NUM_RANKS,
@@ -151,15 +151,20 @@ fn main() {
     let num_tricks = hands.num_tricks();
 
     // Solve for each trump/leader combination
+    // Caches are shared across leaders for the same trump (matching C++ behavior)
     for &t in &trumps {
         let trump_char = trump_to_char(t);
+
+        // Create caches for this trump - they persist across all leaders
+        let mut cutoff_cache = CutoffCache::new(16);
+        let mut pattern_cache = PatternCache::new(16);
 
         if leaders.len() == 1 {
             // Single leader - simple output
             let l = leaders[0];
             let start = Instant::now();
             let solver = Solver::new(hands, t, l);
-            let ns_tricks = solver.solve();
+            let ns_tricks = solver.solve_with_caches(&mut cutoff_cache, &mut pattern_cache);
             let elapsed = start.elapsed();
             // Match C++ output: when N/S leads, show total - ns_tricks
             let result = if l == NORTH || l == SOUTH {
@@ -181,7 +186,7 @@ fn main() {
             for &l in &leaders {
                 let start = Instant::now();
                 let solver = Solver::new(hands, t, l);
-                let ns_tricks = solver.solve();
+                let ns_tricks = solver.solve_with_caches(&mut cutoff_cache, &mut pattern_cache);
                 let elapsed = start.elapsed();
                 // Match C++ output: when N/S leads, show total - ns_tricks
                 let result = if l == NORTH || l == SOUTH {

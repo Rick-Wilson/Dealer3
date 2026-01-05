@@ -547,12 +547,23 @@ impl Solver {
 
     /// Solve and return NS tricks
     pub fn solve(&self) -> u8 {
+        let mut cutoff_cache = search::CutoffCache::new(16);
+        let mut pattern_cache = super::pattern::PatternCache::new(16);
+        self.solve_with_caches(&mut cutoff_cache, &mut pattern_cache)
+    }
+
+    /// Solve with external caches (allows cache sharing across multiple solves)
+    pub fn solve_with_caches(
+        &self,
+        cutoff_cache: &mut search::CutoffCache,
+        pattern_cache: &mut super::pattern::PatternCache,
+    ) -> u8 {
         NODE_COUNT.store(0, Ordering::Relaxed);
         XRAY_COUNT.store(0, Ordering::Relaxed);
         let start = std::time::Instant::now();
         let num_tricks = self.num_tricks;
         let guess = self.guess_tricks();
-        let result = self.mtdf_search(num_tricks, guess);
+        let result = self.mtdf_search_with_caches(num_tricks, guess, cutoff_cache, pattern_cache);
         if SHOW_PERF.load(Ordering::Relaxed) {
             let elapsed = start.elapsed();
             let iterations = NODE_COUNT.load(Ordering::Relaxed);
@@ -567,10 +578,14 @@ impl Solver {
         result
     }
 
-    /// MTD(f) search driver
-    fn mtdf_search(&self, num_tricks: usize, guess: usize) -> u8 {
-        let mut cutoff_cache = search::CutoffCache::new(16);
-        let mut pattern_cache = super::pattern::PatternCache::new(16);
+    /// MTD(f) search driver with external caches
+    fn mtdf_search_with_caches(
+        &self,
+        num_tricks: usize,
+        guess: usize,
+        cutoff_cache: &mut search::CutoffCache,
+        pattern_cache: &mut super::pattern::PatternCache,
+    ) -> u8 {
         let mut hands = self.hands;
 
         let mut lower = 0i8;
@@ -588,8 +603,8 @@ impl Solver {
                 &mut hands,
                 self.trump,
                 self.initial_leader,
-                &mut cutoff_cache,
-                &mut pattern_cache,
+                cutoff_cache,
+                pattern_cache,
             );
             ns_tricks = searcher.search(beta) as i8;
 

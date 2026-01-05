@@ -55,10 +55,13 @@ struct CutoffEntry {
     card: [u8; 4],
 }
 
-/// Cutoff cache
+/// Cutoff cache with linear probing (matching C++ Cache behavior)
 pub struct CutoffCache {
     entries: Box<[CutoffEntry]>,
+    bits: usize,
     mask: usize,
+    probe_distance: usize,
+    load_count: usize,
 }
 
 impl CutoffCache {
@@ -70,34 +73,95 @@ impl CutoffCache {
         };
         CutoffCache {
             entries: vec![default_entry; size].into_boxed_slice(),
+            bits,
             mask: size - 1,
+            probe_distance: 0,
+            load_count: 0,
         }
     }
 
     #[inline]
     fn index(&self, hash: u64) -> usize {
-        (hash as usize) & self.mask
+        // C++ uses: hash >> (BitSize(hash) - bits)
+        // BitSize(hash) = 64 for u64
+        (hash >> (64 - self.bits)) as usize
     }
 
     #[inline]
     pub fn lookup(&self, hash: u64, seat: Seat) -> Option<usize> {
-        let entry = &self.entries[self.index(hash)];
-        if entry.hash == hash && entry.card[seat] != 255 {
-            Some(entry.card[seat] as usize)
-        } else {
-            None
+        let base_index = self.index(hash);
+        // Linear probing like C++
+        for d in 0..self.probe_distance {
+            let entry = &self.entries[(base_index + d) & self.mask];
+            if entry.hash == hash {
+                if entry.card[seat] != 255 {
+                    return Some(entry.card[seat] as usize);
+                } else {
+                    return None;
+                }
+            }
+            if entry.hash == 0 {
+                break; // Empty slot, entry not found
+            }
         }
+        None
     }
 
     #[inline]
     pub fn store(&mut self, hash: u64, seat: Seat, card: usize) {
-        let idx = self.index(hash);
-        let entry = &mut self.entries[idx];
-        if entry.hash != hash {
-            entry.hash = hash;
-            entry.card = [255, 255, 255, 255];
+        // Resize if needed (at 75% load)
+        let size = self.mask + 1;
+        if self.load_count >= size * 3 / 4 {
+            self.resize();
         }
-        entry.card[seat] = card as u8;
+
+        let base_index = self.index(hash);
+        // Linear probing to find or create entry
+        for d in 0.. {
+            let idx = (base_index + d) & self.mask;
+            let entry = &mut self.entries[idx];
+            if entry.hash == hash {
+                // Found existing entry for this hash
+                entry.card[seat] = card as u8;
+                return;
+            }
+            if entry.hash == 0 {
+                // Empty slot, create new entry
+                self.probe_distance = self.probe_distance.max(d + 1);
+                self.load_count += 1;
+                entry.hash = hash;
+                entry.card = [255, 255, 255, 255];
+                entry.card[seat] = card as u8;
+                return;
+            }
+        }
+    }
+
+    fn resize(&mut self) {
+        let old_entries = std::mem::take(&mut self.entries);
+        let new_bits = self.bits + 1;
+        let new_size = 1 << new_bits;
+        let default_entry = CutoffEntry {
+            hash: 0,
+            card: [255, 255, 255, 255],
+        };
+        self.entries = vec![default_entry; new_size].into_boxed_slice();
+        self.bits = new_bits;
+        self.mask = new_size - 1;
+        self.probe_distance = 0;
+        self.load_count = 0;
+
+        // Re-insert all existing entries
+        for entry in old_entries.iter() {
+            if entry.hash != 0 {
+                // Store each seat's card if it was set
+                for seat in 0..4 {
+                    if entry.card[seat] != 255 {
+                        self.store(entry.hash, seat, entry.card[seat] as usize);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -127,6 +191,22 @@ fn build_cutoff_index(
     trump: usize,
     all_cards: Cards,
 ) -> u64 {
+    let (hash, _, _) = build_cutoff_index_debug(hands, seat_to_play, card_in_trick, lead_suit, winning_card, winning_seat, trump, all_cards);
+    hash
+}
+
+/// Build cutoff index keys with debug info (returns hash, key0, key1)
+#[inline]
+fn build_cutoff_index_debug(
+    hands: &Hands,
+    seat_to_play: Seat,
+    card_in_trick: usize,
+    lead_suit: usize,
+    winning_card: usize,
+    winning_seat: Seat,
+    trump: usize,
+    all_cards: Cards,
+) -> (u64, u64, u64) {
     let key0: u64;
     let mut key1: u64 = 0;
 
@@ -152,7 +232,7 @@ fn build_cutoff_index(
     // Always add position in trick (TOTAL_CARDS + card_in_trick)
     key1 |= 1u64 << (TOTAL_CARDS + card_in_trick);
 
-    hash_cutoff_index(key0, key1)
+    (hash_cutoff_index(key0, key1), key0, key1)
 }
 
 /// Format a card as a string
@@ -436,7 +516,11 @@ impl<'a> Search<'a> {
                     Bounds::new(0, remaining as i8),
                 );
                 // Use relative beta for cutoff check (bounds are stored relative to ns_tricks_won)
-                if let Some((_, bounds)) = entry.lookup(&new_pattern, rel_beta) {
+                if let Some((matched_hands, bounds)) = entry.lookup(&new_pattern, rel_beta) {
+                    // Compute rank_winners from matched pattern (matching C++ GetRankWinners)
+                    let matched_pattern = Pattern::new(matched_hands.clone(), bounds);
+                    let rank_winners = matched_pattern.get_rank_winners(all_cards);
+
                     let adj_lower = bounds.lower + ns_tricks_won as i8;
                     let adj_upper = bounds.upper + ns_tricks_won as i8;
                     if adj_lower >= beta {
@@ -449,7 +533,7 @@ impl<'a> Search<'a> {
                                 new_pattern.hands[EAST].value(), new_pattern.hands[SOUTH].value()
                             );
                         }
-                        return SearchResult { ns_tricks: adj_lower as u8, rank_winners: Cards::new() };
+                        return SearchResult { ns_tricks: adj_lower as u8, rank_winners };
                     }
                     if adj_upper < beta {
                         if xray_should_log() {
@@ -458,7 +542,7 @@ impl<'a> Search<'a> {
                                 depth, seat_to_play, beta, ns_tricks_won, bounds.lower, bounds.upper, adj_upper
                             );
                         }
-                        return SearchResult { ns_tricks: adj_upper as u8, rank_winners: Cards::new() };
+                        return SearchResult { ns_tricks: adj_upper as u8, rank_winners };
                     }
                     pattern_cutoff = true;
                 }
@@ -626,7 +710,7 @@ impl<'a> Search<'a> {
         // Check cutoff cache first (using C++ style 2-key index)
         let all_cards = self.tricks[trick_idx].all_cards;
         let lead_suit_for_cutoff = lead_suit.unwrap_or(0);
-        let cutoff_hash = build_cutoff_index(
+        let (cutoff_hash, key0, key1) = build_cutoff_index_debug(
             self.hands,
             seat_to_play,
             card_in_trick,
@@ -641,6 +725,15 @@ impl<'a> Search<'a> {
         } else {
             None
         };
+
+        // CUTOFF_INDEX logging
+        let iter_count = NODE_COUNT.load(Ordering::Relaxed);
+        if xray_should_log() {
+            eprintln!(
+                "CUTOFF_INDEX: iter={} depth={} key0={:x} key1={:x} seat={}",
+                iter_count, depth, key0, key1, seat_to_play
+            );
+        }
 
         // MOVE_ORDER logging BEFORE update
         let iter_count = NODE_COUNT.load(Ordering::Relaxed);
@@ -661,15 +754,24 @@ impl<'a> Search<'a> {
         }
 
         let mut remaining_playable = playable;
-        if let Some(cc) = cutoff_card {
+        let has_cutoff = if let Some(cc) = cutoff_card {
             if playable.have(cc) {
+                // C++ behavior: add cutoff card first, keep remaining in remaining_playable
                 ordered_cards.add(cc);
                 remaining_playable.remove(cc);
+                true
+            } else {
+                false
             }
-        }
+        } else {
+            false
+        };
 
-        // Order remaining cards
-        Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
+        if !has_cutoff {
+            // No cutoff card - order all playable cards and clear remaining
+            Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
+            remaining_playable = Cards::new();
+        }
 
         // MOVE_ORDER logging AFTER update
         if xray_should_log() {
@@ -723,7 +825,8 @@ impl<'a> Search<'a> {
         let mut min_relevant_ranks = [0usize; NUM_SUITS];
         let no_rank_skip = NO_RANK_SKIP.load(Ordering::Relaxed);
 
-        for i in 0..ordered_cards.len() {
+        let mut i = 0;
+        while i < ordered_cards.len() {
             let card = ordered_cards.card(i);
             let suit = suit_of(card);
             let rank = rank_of(card);
@@ -731,12 +834,24 @@ impl<'a> Search<'a> {
             // Skip if rank is below minimum relevant rank (unless no_rank_skip is set)
             if !no_rank_skip && rank < min_relevant_ranks[suit] {
                 tried_cards.add(card);
+                // C++ behavior: after trying first card, order remaining playable cards
+                if !remaining_playable.is_empty() {
+                    Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
+                    remaining_playable = Cards::new();
+                }
+                i += 1;
                 continue;
             }
 
             // IsEquivalent check - always call, even for first card (matches C++ behavior)
             if self.is_equivalent(card, tried_cards.suit(suit), my_hand, all_cards) {
                 tried_cards.add(card);
+                // C++ behavior: after trying first card, order remaining playable cards
+                if !remaining_playable.is_empty() {
+                    Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
+                    remaining_playable = Cards::new();
+                }
+                i += 1;
                 continue;
             }
             tried_cards.add(card);
@@ -823,6 +938,14 @@ impl<'a> Search<'a> {
                     depth, card_name(card), suit, old_min, min_relevant_ranks[suit], winner_str, self.format_play_sequence(depth)
                 );
             }
+
+            // C++ behavior: after trying a card, order remaining playable cards
+            if !remaining_playable.is_empty() {
+                Self::order_cards_static(&mut ordered_cards, depth, remaining_playable, &self.plays, &self.tricks, self.hands, self.trump);
+                remaining_playable = Cards::new();
+            }
+
+            i += 1;
         }
 
         SearchResult { ns_tricks: best, rank_winners }
