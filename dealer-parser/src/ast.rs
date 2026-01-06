@@ -291,12 +291,12 @@ impl Function {
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "hcp" => Some(Function::Hcp),
-            "spades" => Some(Function::Spades),
-            "hearts" => Some(Function::Hearts),
-            "diamonds" => Some(Function::Diamonds),
-            "clubs" => Some(Function::Clubs),
+            "spades" | "spade" => Some(Function::Spades),
+            "hearts" | "heart" => Some(Function::Hearts),
+            "diamonds" | "diamond" => Some(Function::Diamonds),
+            "clubs" | "club" => Some(Function::Clubs),
             "controls" => Some(Function::Controls),
-            "losers" => Some(Function::Losers),
+            "losers" | "loser" => Some(Function::Losers),
             "shape" => Some(Function::Shape),
             "hascard" => Some(Function::HasCard),
             "tens" | "pt0" => Some(Function::Tens),

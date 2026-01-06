@@ -299,6 +299,74 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
 
             Ok(Statement::CsvReport(csv_terms))
         }
+        Rule::average_stmt => {
+            // Standalone average statement: average "label"? expr
+            let mut parts = inner.into_inner();
+            let first = parts.next().unwrap();
+
+            let (label, expr_pair) = if first.as_rule() == Rule::string_literal {
+                // Has label - strip quotes
+                let label_str = first.as_str();
+                let label = label_str[1..label_str.len() - 1].to_string();
+                (Some(label), parts.next().unwrap())
+            } else {
+                // No label - first element is the expression
+                (None, first)
+            };
+
+            let expr = build_ast(expr_pair)?;
+            Ok(Statement::Action {
+                averages: vec![AverageSpec { label, expr }],
+                frequencies: Vec::new(),
+                format: None,
+            })
+        }
+        Rule::frequency_stmt => {
+            // Standalone frequency statement: frequency "label"? (expr, min, max)
+            let mut parts = inner.into_inner();
+            let first = parts.next().unwrap();
+
+            let (label, expr_pair) = if first.as_rule() == Rule::string_literal {
+                // Has label - strip quotes
+                let label_str = first.as_str();
+                let label = label_str[1..label_str.len() - 1].to_string();
+                (Some(label), parts.next().unwrap())
+            } else {
+                // No label - first element is the expression
+                (None, first)
+            };
+
+            let expr = build_ast(expr_pair)?;
+
+            // Parse range (min, max)
+            let min = parts.next().unwrap().as_str().parse::<i32>().map_err(|_| ParseError {
+                message: "Invalid frequency range min".to_string(),
+            })?;
+            let max = parts.next().unwrap().as_str().parse::<i32>().map_err(|_| ParseError {
+                message: "Invalid frequency range max".to_string(),
+            })?;
+
+            Ok(Statement::Action {
+                averages: Vec::new(),
+                frequencies: vec![FrequencySpec {
+                    label,
+                    expr,
+                    range: Some((min, max)),
+                }],
+                format: None,
+            })
+        }
+        Rule::print_stmt => {
+            // Standalone print statement: printpbn, printall, etc.
+            let action_type = ActionType::parse(inner.as_str()).ok_or_else(|| ParseError {
+                message: format!("Invalid print statement: {}", inner.as_str()),
+            })?;
+            Ok(Statement::Action {
+                averages: Vec::new(),
+                frequencies: Vec::new(),
+                format: Some(action_type),
+            })
+        }
         Rule::assignment => {
             let mut parts = inner.into_inner();
             let name = parts.next().unwrap().as_str().to_string();
@@ -495,11 +563,16 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             let mut pairs = pair.into_inner();
             let first = pairs.next().unwrap();
 
-            if first.as_str() == "-" {
-                let inner = build_ast(pairs.next().unwrap())?;
-                Ok(Expr::unary(UnaryOp::Negate, inner))
-            } else {
-                build_ast(first)
+            match first.as_rule() {
+                Rule::not_op => {
+                    let inner = build_ast(pairs.next().unwrap())?;
+                    Ok(Expr::unary(UnaryOp::Not, inner))
+                }
+                _ if first.as_str() == "-" => {
+                    let inner = build_ast(pairs.next().unwrap())?;
+                    Ok(Expr::unary(UnaryOp::Negate, inner))
+                }
+                _ => build_ast(first),
             }
         }
 

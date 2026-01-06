@@ -1,6 +1,7 @@
 use dealer_core::{Card, Deal, Position, Suit};
 use dealer_dds::{Denomination, DoubleDummySolver};
 use dealer_parser::{BinaryOp, Expr, Function, Program, Shape, ShapePattern, Statement, UnaryOp};
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// IMP conversion table (from DealerV2_4)
@@ -304,8 +305,11 @@ impl std::error::Error for EvalError {}
 pub struct EvalContext<'a> {
     pub deal: &'a Deal,
     /// Variable name -> Expression tree mapping
-    /// Variables store expression trees, not values (runtime-evaluated like dealer.c)
+    /// Variables store expression trees, not values
     pub variables: HashMap<String, Expr>,
+    /// Cache of evaluated variable values (per-deal)
+    /// Using RefCell for interior mutability since eval takes &self
+    cache: RefCell<HashMap<String, i32>>,
 }
 
 impl<'a> EvalContext<'a> {
@@ -313,12 +317,17 @@ impl<'a> EvalContext<'a> {
         EvalContext {
             deal,
             variables: HashMap::new(),
+            cache: RefCell::new(HashMap::new()),
         }
     }
 
     /// Create a context with pre-defined variables
     pub fn with_variables(deal: &'a Deal, variables: HashMap<String, Expr>) -> Self {
-        EvalContext { deal, variables }
+        EvalContext {
+            deal,
+            variables,
+            cache: RefCell::new(HashMap::new()),
+        }
     }
 }
 
@@ -326,7 +335,11 @@ impl<'a> EvalContext<'a> {
 ///
 /// Processes statements in order:
 /// - Assignments populate the variables HashMap
-/// - The final expression is evaluated with all variables defined
+/// - The last expression/condition is the constraint to evaluate
+///
+/// Note: Multiple bare expressions in a file - only the LAST one is used as the condition.
+/// Earlier expressions are evaluated for side effects but don't affect matching.
+/// This matches dealer.exe behavior where earlier bare expressions appear to be ignored.
 pub fn eval_program(program: &Program, deal: &Deal) -> Result<i32, EvalError> {
     let mut variables = HashMap::new();
 
@@ -373,9 +386,19 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
         Expr::Literal(value) => Ok(*value),
 
         Expr::Variable(name) => {
+            // Check cache first
+            if let Some(&cached_value) = ctx.cache.borrow().get(name) {
+                return Ok(cached_value);
+            }
+
             // Look up variable and evaluate its stored expression tree
             match ctx.variables.get(name) {
-                Some(var_expr) => eval(var_expr, ctx), // Recursively evaluate the stored expression
+                Some(var_expr) => {
+                    let value = eval(var_expr, ctx)?;
+                    // Cache the computed value
+                    ctx.cache.borrow_mut().insert(name.clone(), value);
+                    Ok(value)
+                }
                 None => Err(EvalError::UndefinedVariable(name.clone())),
             }
         }
@@ -482,7 +505,9 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
 fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Result<i32, EvalError> {
     match function {
         Function::Hcp => {
-            if args.len() != 1 {
+            // hcp(position) - total HCP for a hand
+            // hcp(position, suit) - HCP in a specific suit
+            if args.is_empty() || args.len() > 2 {
                 return Err(EvalError::InvalidArgumentCount {
                     function: "hcp".to_string(),
                     expected: 1,
@@ -491,7 +516,19 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             }
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
-            Ok(hand.hcp() as i32)
+
+            if args.len() == 2 {
+                // HCP in a specific suit
+                let suit = eval_suit_arg(&args[1])?;
+                let hcp: u8 = hand
+                    .cards_in_suit(suit)
+                    .iter()
+                    .map(|c| c.hcp())
+                    .sum();
+                Ok(hcp as i32)
+            } else {
+                Ok(hand.hcp() as i32)
+            }
         }
 
         Function::Hearts => {
@@ -547,7 +584,9 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Controls => {
-            if args.len() != 1 {
+            // controls(position) - total controls for a hand
+            // controls(position, suit) - controls in a specific suit
+            if args.is_empty() || args.len() > 2 {
                 return Err(EvalError::InvalidArgumentCount {
                     function: "controls".to_string(),
                     expected: 1,
@@ -556,7 +595,23 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             }
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
-            Ok(hand.controls() as i32)
+
+            if args.len() == 2 {
+                // Controls in a specific suit (A=2, K=1)
+                let suit = eval_suit_arg(&args[1])?;
+                let controls: u8 = hand
+                    .cards_in_suit(suit)
+                    .iter()
+                    .map(|c| match c.rank {
+                        dealer_core::Rank::Ace => 2,
+                        dealer_core::Rank::King => 1,
+                        _ => 0,
+                    })
+                    .sum();
+                Ok(controls as i32)
+            } else {
+                Ok(hand.controls() as i32)
+            }
         }
 
         Function::Shape => {

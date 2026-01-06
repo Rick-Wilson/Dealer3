@@ -169,27 +169,34 @@ Priority features for next implementation:
 
 ### Windows VM Access (for running dealer.exe)
 **IP Address**: `10.211.55.5`
-**Username**: `rick` (assumed - verify if different)
+**Username**: `rick`
+
+**IMPORTANT**: SSH sessions don't inherit user's mapped drives. You must map the P: drive before accessing files:
 
 **Usage**: When you need to run dealer.exe on Windows to test exact compatibility:
 ```bash
-# SSH to Windows VM and run dealer.exe
+# Run dealer with a .dlr file from Practice-Bidding-Scenarios
+# First map P: drive, then run dealer
+ssh rick@10.211.55.5 'net use P: "\\Mac\Home\Developer\GitHub\Practice-Bidding-Scenarios" >nul 2>&1 & dealer -p 10 -s 42 P:\dlr\Last_Train_GT2.dlr'
+
+# For simple inline expressions (no drive mapping needed)
 ssh rick@10.211.55.5 "echo 'hcp(north) >= 20' | dealer -p 10 -s 1"
 
 # Compare dealer3 vs dealer.exe output directly
 diff <(ssh rick@10.211.55.5 "echo 'hcp(north) >= 20' | dealer -p 10 -s 1") \
      <(echo "hcp(north) >= 20" | dealer -p 10 -s 1)
 
-# Test RNG compatibility with same seed
-ssh rick@10.211.55.5 "echo 'condition hcp(north) >= 15' | dealer -p 5 -s 1" > windows_dealer.out
-echo "condition hcp(north) >= 15" | dealer -p 5 -s 1 > dealer3.out
-diff windows_dealer.out dealer3.out
+# Test with a .dlr file - map drive first
+ssh rick@10.211.55.5 'net use P: "\\Mac\Home\Developer\GitHub\Practice-Bidding-Scenarios" >nul 2>&1 & dealer -p 10 -s 42 P:\dlr\SomeFile.dlr'
 
 # Interactive SSH session for testing
 ssh rick@10.211.55.5
 ```
 
-**Note**: The Windows VM has `dealer` as a shell symbol, so use `dealer` not `dealer.exe` in SSH commands.
+**Notes**:
+- The Windows VM has `dealer` in PATH at `C:\Dealer\dealer.exe`
+- P: drive maps to `/Users/rick/Developer/GitHub/Practice-Bidding-Scenarios` via Parallels shared folders
+- The `net use` command is idempotent (won't fail if already mapped)
 
 ### DealerV2 (Hans van Staveren, expanded version)
 **Location**: `/tmp/dealerv2` (cloned locally)

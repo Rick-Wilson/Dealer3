@@ -8,7 +8,8 @@ COMMENT = _{
 }
 
 // Top-level can be a dealer program with action blocks or simple statements
-program = { SOI ~ (dealer_statement ~ ("\n" | ";")?)* ~ EOI }
+// Statements can be separated by newlines, semicolons, or commas (for action lists)
+program = { SOI ~ (dealer_statement ~ ("\n" | ";" | ",")?)* ~ EOI }
 
 // Dealer statement types
 dealer_statement = {
@@ -19,9 +20,17 @@ dealer_statement = {
     | vulnerable_stmt
     | predeal_stmt
     | csvrpt_stmt
+    | average_stmt
+    | frequency_stmt
+    | print_stmt
     | assignment
     | expr
 }
+
+// Standalone action statements (can appear without "action" keyword)
+average_stmt = { ^"average" ~ string_literal? ~ expr }
+frequency_stmt = { ^"frequency" ~ string_literal? ~ "(" ~ expr ~ "," ~ literal ~ "," ~ literal ~ ")" }
+print_stmt = { ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline" }
 
 // Action block keywords
 condition_stmt = { ^"condition" ~ expr }
@@ -46,7 +55,8 @@ side = @{ ^"ns" | ^"ew" }
 // Action components (can be comma-separated)
 action_component = { average_spec | frequency_spec | action_type }
 average_spec = { ^"average" ~ string_literal? ~ expr }
-frequency_spec = { ^"frequency" ~ string_literal? ~ expr ~ (literal ~ literal)? }
+// frequency "label" (expr, min, max) - parentheses with commas
+frequency_spec = { ^"frequency" ~ string_literal? ~ "(" ~ expr ~ "," ~ literal ~ "," ~ literal ~ ")" }
 
 action_type = @{
     ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline"
@@ -63,8 +73,11 @@ vulnerability = @{
     ^"none" | ^"ns" | ^"ew" | ^"all"
 }
 
-// Variable assignment
-assignment = { ident ~ "=" ~ expr }
+// Variable assignment - uses assign_ident which allows single letters like s, n, e, w
+assignment = { assign_ident ~ "=" ~ expr }
+
+// Identifier for left side of assignment (allows single letters that would otherwise match positions)
+assign_ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // Top-level constraint expression (for backward compatibility)
 constraint = { SOI ~ expr ~ EOI }
@@ -80,14 +93,22 @@ logical_and = { logical_not ~ (and_op ~ logical_not)* }
 logical_not = { not_op ~ logical_not | comparison }
 
 // Logical operator keywords
-or_op = { "||" | ^"or" }
-and_op = { "&&" | ^"and" }
-not_op = { "!" | ^"not" }
+// Use @{} atomic rules with negative lookahead to ensure keywords are not part of a variable name
+// e.g., "notNT" should be parsed as a variable, not "not" followed by "NT"
+or_op = { "||" | or_keyword }
+and_op = { "&&" | and_keyword }
+not_op = { "!" | not_keyword }
+
+or_keyword = @{ ^"or" ~ !(ASCII_ALPHANUMERIC | "_") }
+and_keyword = @{ ^"and" ~ !(ASCII_ALPHANUMERIC | "_") }
+not_keyword = @{ ^"not" ~ !(ASCII_ALPHANUMERIC | "_") }
 
 comparison = { additive ~ (cmp_op ~ additive)? }
 additive = { multiplicative ~ (add_op ~ multiplicative)* }
 multiplicative = { unary ~ (mul_op ~ unary)* }
-unary = { "-" ~ unary | primary }
+// Unary operators: negation (-) and logical not (!/not)
+// Both have the same (high) precedence, so 100 * not x = 100 * (not x)
+unary = { "-" ~ unary | not_op ~ unary | primary }
 
 primary = _{
     function_call  // Must be first to parse function(args)
@@ -106,14 +127,15 @@ paren_expr = { "(" ~ expr ~ ")" }
 function_call = { function_name ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
 
 function_name = @{
-    "hcp" | "controls" | "losers"
+    "hcp" | "controls" | "losers" | "loser"
     | "shape" | "hascard"
     | "tens" | "jacks" | "queens" | "kings" | "aces"
     | "top2" | "top3" | "top4" | "top5" | "c13"
     | "pt0" | "pt1" | "pt2" | "pt3" | "pt4" | "pt5" | "pt6" | "pt7" | "pt8" | "pt9"
     | "quality" | "cccc"
     | "tricks" | "score" | "imps"  // Double-dummy and scoring functions
-    | "hearts" | "spades" | "diamonds" | "clubs"  // Must be after suit check in primary
+    | "hearts" | "spades" | "diamonds" | "clubs"  // Plural forms (must be before singular)
+    | "heart" | "spade" | "diamond" | "club"  // Singular aliases
 }
 
 // Comparison operators
@@ -133,9 +155,11 @@ position = @{
 }
 
 // Suit names (for functions like losers(north, spades))
-// Use negative lookahead to ensure not followed by '(' (which would be a function call)
+// Use negative lookahead to ensure:
+// - not followed by '(' (which would be a function call like spades())
+// - not followed by alphanumeric (which would be a variable like spadeFit)
 suit = @{
-    (^"spades" | ^"hearts" | ^"diamonds" | ^"clubs") ~ !("(")
+    (^"spades" | ^"hearts" | ^"diamonds" | ^"clubs") ~ !(ASCII_ALPHANUMERIC | "(")
 }
 
 // Integer literals
@@ -153,11 +177,13 @@ rank = { "A" | "K" | "Q" | "J" | "T" | "9" | "8" | "7" | "6" | "5" | "4" | "3" |
 suit_char = { "S" | "H" | "D" | "C" }
 
 // Identifiers (for variables)
-// Must come after position, function_name, and card to avoid conflicts
-ident = @{ !(position | function_name) ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+// Allow any alphanumeric identifier - the parser will try more specific rules first
+// Variables like "spadeFit" or "heartCount" must be allowed even though they start with keywords
+ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // Shape patterns: any 4333 + 54xx - any 0xxx
-shape_pattern = { shape_spec ~ (shape_op ~ shape_spec)* }
+// Spaces can act as implicit "+" (addition) between shape specs
+shape_pattern = { shape_spec ~ ((shape_op)? ~ shape_spec)* }
 
 shape_spec = { (shape_any ~ shape_digits_any) | shape_digits_marked }
 

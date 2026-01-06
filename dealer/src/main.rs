@@ -112,6 +112,10 @@ struct Args {
     /// DEPRECATED: Library mode (conflicting meanings in dealer.exe vs DealerV2_4)
     #[arg(short = 'l', hide = true)]
     library: bool,
+
+    /// Timeout in seconds (stop generation after this many seconds)
+    #[arg(short = 't', long = "timeout")]
+    timeout: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -526,6 +530,14 @@ fn main() {
         }
     }
 
+    // Extract variables from program statements (for use in action block evaluation)
+    let mut program_variables: HashMap<String, Expr> = HashMap::new();
+    for statement in &program.statements {
+        if let Statement::Assignment { name, expr } = statement {
+            program_variables.insert(name.clone(), expr.clone());
+        }
+    }
+
     // Determine limits for generation
     // -g limits total hands generated, -p limits matching hands produced
     // When both are specified, stop when either limit is reached
@@ -635,9 +647,27 @@ fn main() {
     let progress_interval = 10000; // Show progress every 10,000 deals
     let mut last_progress_report = 0;
 
+    // Track if we timed out
+    let mut timed_out = false;
+
     // Generate deals until we reach a limit
     // Stop when either: we've produced enough matching deals, or generated enough total deals
     while produced < produce_count && generated < max_generate {
+        // Check timeout (check every 1000 deals to avoid excessive time calls)
+        if let Some(timeout_secs) = args.timeout {
+            if generated % 1000 == 0 {
+                let elapsed = start_time.elapsed().unwrap().as_secs();
+                if elapsed >= timeout_secs {
+                    timed_out = true;
+                    eprintln!(
+                        "Timeout after {} seconds ({} generated, {} produced)",
+                        elapsed, generated, produced
+                    );
+                    break;
+                }
+            }
+        }
+
         let deal = generator.generate();
         generated += 1;
 
@@ -658,7 +688,7 @@ fn main() {
 
                 // Calculate averages for this matching deal
                 if !averages.is_empty() || !frequencies.is_empty() {
-                    let ctx = EvalContext::new(&deal);
+                    let ctx = EvalContext::with_variables(&deal, program_variables.clone());
 
                     for (_, expr, sum, count) in &mut averages {
                         match eval(expr, &ctx) {
@@ -713,7 +743,7 @@ fn main() {
 
                 // Write CSV reports if any
                 if !csv_reports.is_empty() && csv_writer.is_some() {
-                    let ctx = EvalContext::new(&deal);
+                    let ctx = EvalContext::with_variables(&deal, program_variables.clone());
 
                     for csv_terms in &csv_reports {
                         let mut line_parts: Vec<String> = Vec::new();
@@ -851,5 +881,10 @@ fn main() {
         eprintln!("Produced {} hands", produced);
         eprintln!("Initial random seed {}", seed);
         eprintln!("Time needed  {:7.3} sec", elapsed_secs);
+    }
+
+    // Exit with error code if timed out
+    if timed_out {
+        std::process::exit(2);
     }
 }
