@@ -7,13 +7,14 @@
 #   echo "condition" | compare-dealer.sh [options] [dealer-options]
 #
 # Options:
-#   -t, --timeout SECS   Job timeout in seconds (default: 10, ignored for local reference)
+#   -t, --timeout SECS   Job timeout in seconds (default: 10)
 #   -r, --rust PATH      Path to Rust dealer binary (default: target/release/dealer)
-#   --ref PATH           Path to reference dealer binary (default: local macOS build)
-#   --windows            Use Windows dealer.exe via SSH instead of local reference
+#   --ref PATH           Path to reference dealer binary (default: Dealer-cleanup build)
 #   -o, --output         Show raw output from both runs after comparison
 #   --no-pretest         Skip the quick pretest (pretest is on by default)
 #   --pretest-only       Run only the pretest (-p 2), skip the full comparison
+#   -R, --threads N      Pass -R N to Rust dealer (parallel threads, 0=auto)
+#   --batch-size N       Pass --batch-size N to Rust dealer (work units per batch)
 #   -h, --help           Show this help message
 #
 # Examples:
@@ -23,14 +24,14 @@
 #   compare-dealer.sh -o -p 10 -s 1 test.dlr
 #   compare-dealer.sh --no-pretest -p 1000 -s 1 test.dlr
 #   compare-dealer.sh --pretest-only -s 1 test.dlr
-#   compare-dealer.sh --windows -p 10 -s 1 test.dlr  # Use Windows dealer.exe
+#   compare-dealer.sh -R 0 -p 10 -s 1 test.dlr       # Test parallel mode (auto threads)
+#   compare-dealer.sh -R 4 --batch-size 5000 -p 10 -s 1 test.dlr  # 4 threads, batch 5000
 #
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WIN_DEALER="$SCRIPT_DIR/win-dealer.sh"
-LOCAL_REF_DEALER="/Users/rick/Documents/Bridge/Dealer/dealer/dealer"
+LOCAL_REF_DEALER="/Users/rick/Development/GitHub/Dealer-cleanup/dealer"
 
 TIMEOUT=10
 DEALER_ARGS=()
@@ -38,9 +39,10 @@ INPUT_FILE=""
 SHOW_OUTPUT=false
 DEALER3=""
 REF_DEALER=""
-USE_WINDOWS=false
 RUN_PRETEST=true
 PRETEST_ONLY=false
+RUST_THREADS=""
+BATCH_SIZE=""
 
 show_help() {
     sed -n '2,28p' "$0" | sed 's/^# \?//'
@@ -62,10 +64,6 @@ while [[ $# -gt 0 ]]; do
             REF_DEALER="$2"
             shift 2
             ;;
-        --windows)
-            USE_WINDOWS=true
-            shift
-            ;;
         -o|--output)
             SHOW_OUTPUT=true
             shift
@@ -77,6 +75,14 @@ while [[ $# -gt 0 ]]; do
         --pretest-only)
             PRETEST_ONLY=true
             shift
+            ;;
+        -R|--threads)
+            RUST_THREADS="$2"
+            shift 2
+            ;;
+        --batch-size)
+            BATCH_SIZE="$2"
+            shift 2
             ;;
         -h|--help)
             show_help
@@ -121,18 +127,18 @@ if [[ ! -x "$DEALER3" ]]; then
 fi
 
 # Find reference dealer if not specified
-if [[ -z "$REF_DEALER" ]] && [[ "$USE_WINDOWS" == false ]]; then
+if [[ -z "$REF_DEALER" ]]; then
     if [[ -x "$LOCAL_REF_DEALER" ]]; then
         REF_DEALER="$LOCAL_REF_DEALER"
     else
-        echo "Warning: Local reference dealer not found at $LOCAL_REF_DEALER" >&2
-        echo "Falling back to Windows dealer.exe" >&2
-        USE_WINDOWS=true
+        echo "Error: Reference dealer not found at $LOCAL_REF_DEALER" >&2
+        echo "Build it with: cd /Users/rick/Development/GitHub/Dealer-cleanup && make" >&2
+        exit 1
     fi
 fi
 
-# Verify reference dealer exists (if using local)
-if [[ "$USE_WINDOWS" == false ]] && [[ ! -x "$REF_DEALER" ]]; then
+# Verify reference dealer exists
+if [[ ! -x "$REF_DEALER" ]]; then
     echo "Error: Reference dealer not found or not executable: $REF_DEALER" >&2
     exit 1
 fi
@@ -144,10 +150,8 @@ trap "rm -f $RUST_OUT $REF_OUT" EXIT
 
 # Extract deal lines (exclude stats lines and PBN metadata that differs between environments)
 # Normalizes: CRLF, trailing whitespace, Event field (paths differ), Date field (runtime difference)
-# Also strips stray chars from dealer.exe block comment bug (E, O, F, <, > at start of first line)
 extract_deals() {
     tr -d '\r' < "$1" | \
-        sed '1s/^[<EOF>]*//' | \
         grep -v -E '^(Generated|Produced|Initial|Time|$)' | \
         grep -v -E '^\[Event ' | \
         grep -v -E '^\[Date ' | \
@@ -158,27 +162,20 @@ extract_deals() {
 extract_stat() {
     local file="$1"
     local pattern="$2"
-    grep -i "$pattern" "$file" 2>/dev/null | grep -oE '[0-9]+' | head -1
+    # Match lines starting with the pattern (e.g., "Generated 123 hands")
+    # This avoids matching timeout messages like "Timeout after 2 seconds (469572 generated, 0 produced)"
+    grep -E "^${pattern}" "$file" 2>/dev/null | grep -oE '[0-9]+' | head -1
 }
 
-# Run reference dealer (local or Windows)
+# Run reference dealer
 run_ref_dealer() {
     local args=("$@")
 
-    if [[ "$USE_WINDOWS" == true ]]; then
-        # Windows mode: use win-dealer.sh with timeout and strip comment bug
-        if [[ -n "$INPUT_FILE" ]]; then
-            "$WIN_DEALER" -t "$TIMEOUT" --strip-comment-bug "${args[@]}" "$INPUT_FILE" > "$REF_OUT" 2>&1
-        else
-            echo "$INPUT" | "$WIN_DEALER" -t "$TIMEOUT" --strip-comment-bug "${args[@]}" > "$REF_OUT" 2>&1
-        fi
+    # Always use -X to force stats on
+    if [[ -n "$INPUT_FILE" ]]; then
+        "$REF_DEALER" -X "${args[@]}" "$INPUT_FILE" > "$REF_OUT" 2>&1
     else
-        # Local mode: run directly (no timeout support in original dealer)
-        if [[ -n "$INPUT_FILE" ]]; then
-            "$REF_DEALER" "${args[@]}" "$INPUT_FILE" > "$REF_OUT" 2>&1
-        else
-            echo "$INPUT" | "$REF_DEALER" "${args[@]}" > "$REF_OUT" 2>&1
-        fi
+        echo "$INPUT" | "$REF_DEALER" -X "${args[@]}" > "$REF_OUT" 2>&1
     fi
 }
 
@@ -189,11 +186,20 @@ run_comparison() {
     shift
     local args=("$@")
 
-    # Run dealer3 (with timeout)
+    # Build Rust-specific args
+    local rust_args=(-t "$TIMEOUT" -X)
+    if [[ -n "$RUST_THREADS" ]]; then
+        rust_args+=(-R "$RUST_THREADS")
+    fi
+    if [[ -n "$BATCH_SIZE" ]]; then
+        rust_args+=(--batch-size "$BATCH_SIZE")
+    fi
+
+    # Run dealer3 (with timeout, -X, and optional threads)
     if [[ -n "$INPUT_FILE" ]]; then
-        "$DEALER3" -t "$TIMEOUT" "${args[@]}" "$INPUT_FILE" > "$RUST_OUT" 2>&1
+        "$DEALER3" "${rust_args[@]}" "${args[@]}" "$INPUT_FILE" > "$RUST_OUT" 2>&1
     else
-        echo "$INPUT" | "$DEALER3" -t "$TIMEOUT" "${args[@]}" > "$RUST_OUT" 2>&1
+        echo "$INPUT" | "$DEALER3" "${rust_args[@]}" "${args[@]}" > "$RUST_OUT" 2>&1
     fi
 
     # Run reference dealer
@@ -219,17 +225,10 @@ if [[ -z "$INPUT_FILE" ]] && [[ ! -t 0 ]]; then
     INPUT=$(cat)
 fi
 
-# Determine reference name for display
-if [[ "$USE_WINDOWS" == true ]]; then
-    REF_NAME="Windows dealer.exe"
-else
-    REF_NAME="Local dealer ($(basename "$REF_DEALER"))"
-fi
+# Reference name for display
+REF_NAME="Local dealer ($(basename "$REF_DEALER"))"
 
 # Run pretest if enabled (quick test with -p 2)
-# Note: We use -p 2 instead of -p 1 because dealer.exe has a bug where PBN output
-# toggles verbose each deal, so odd counts suppress stats while even counts show them.
-# Using -p 2 ensures stats are shown for comparison.
 if [[ "$RUN_PRETEST" == true ]] || [[ "$PRETEST_ONLY" == true ]]; then
     echo "=== Pretest (quick -p 2 check) ==="
     echo "Reference: $REF_NAME"
@@ -283,14 +282,30 @@ fi
 echo "=== Full Comparison ==="
 echo "Using: $DEALER3"
 echo "Reference: $REF_NAME"
+if [[ -n "$RUST_THREADS" ]]; then
+    if [[ "$RUST_THREADS" == "0" ]]; then
+        echo "Threads: auto-detect (Rust only)"
+    else
+        echo "Threads: $RUST_THREADS (Rust only)"
+    fi
+fi
 echo ""
+
+# Build Rust-specific args for full test
+RUST_SPECIFIC_ARGS=(-t "$TIMEOUT" -X)
+if [[ -n "$RUST_THREADS" ]]; then
+    RUST_SPECIFIC_ARGS+=(-R "$RUST_THREADS")
+fi
+if [[ -n "$BATCH_SIZE" ]]; then
+    RUST_SPECIFIC_ARGS+=(--batch-size "$BATCH_SIZE")
+fi
 
 # Run dealer3 with full args
 if [[ -n "$INPUT_FILE" ]]; then
-    "$DEALER3" -t "$TIMEOUT" "${DEALER_ARGS[@]}" "$INPUT_FILE" > "$RUST_OUT" 2>&1
+    "$DEALER3" "${RUST_SPECIFIC_ARGS[@]}" "${DEALER_ARGS[@]}" "$INPUT_FILE" > "$RUST_OUT" 2>&1
     RUST_EXIT=$?
 else
-    echo "$INPUT" | "$DEALER3" -t "$TIMEOUT" "${DEALER_ARGS[@]}" > "$RUST_OUT" 2>&1
+    echo "$INPUT" | "$DEALER3" "${RUST_SPECIFIC_ARGS[@]}" "${DEALER_ARGS[@]}" > "$RUST_OUT" 2>&1
     RUST_EXIT=$?
 fi
 
@@ -323,13 +338,8 @@ else
 fi
 
 # Produced comparison
-# Note: dealer.exe has a bug where PBN output toggles verbose each deal,
-# so odd deal counts suppress stats. Treat empty ref stats as N/A, not failure.
 if [[ "$RUST_PRODUCED" == "$REF_PRODUCED" ]]; then
     echo "Produced:    ✅ MATCH ($RUST_PRODUCED)"
-elif [[ -z "$REF_PRODUCED" ]]; then
-    echo "Produced:    ⚠️  N/A (Rust: $RUST_PRODUCED, Ref: stats suppressed by dealer.exe PBN bug)"
-    REF_PRODUCED="$RUST_PRODUCED"  # Treat as match for overall result
 else
     echo "Produced:    ❌ FAIL (Rust: $RUST_PRODUCED, Ref: $REF_PRODUCED)"
 fi
@@ -337,9 +347,6 @@ fi
 # Generated comparison
 if [[ "$RUST_GENERATED" == "$REF_GENERATED" ]]; then
     echo "Generated:   ✅ MATCH ($RUST_GENERATED)"
-elif [[ -z "$REF_GENERATED" ]]; then
-    echo "Generated:   ⚠️  N/A (Rust: $RUST_GENERATED, Ref: stats suppressed by dealer.exe PBN bug)"
-    REF_GENERATED="$RUST_GENERATED"  # Treat as match for overall result
 else
     echo "Generated:   ❌ FAIL (Rust: $RUST_GENERATED, Ref: $REF_GENERATED)"
 fi

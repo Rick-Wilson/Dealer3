@@ -308,7 +308,7 @@ When implementing these optimizations:
 - `gnurandom/src/lib.rs` - RNG implementation (candidate for fast_randint optimization)
 
 ### Reference Implementations
-- Original C: `/Users/rick/Documents/Bridge/Dealer/dealer/dealer.c`
+- Original C: `/Users/rick/Development/GitHub/Dealer-cleanup/dealer.c`
 - Penguin: `/Users/rick/Development/GitHub/penguin-dealer/dealer.c`
 - Penguin fast RNG: `/Users/rick/Development/GitHub/penguin-dealer/fast_randint.c`
 - Penguin headers: `/Users/rick/Development/GitHub/penguin-dealer/dealer.h`

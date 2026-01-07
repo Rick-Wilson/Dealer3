@@ -154,13 +154,13 @@ Priority features for next implementation:
 ## Source Material & Reference Implementations
 
 ### Original dealer.exe (Henk Uijterwaal)
-**Location**: `/Users/rick/Documents/Bridge/Dealer/dealer/`
+**Location**: `/Users/rick/Development/GitHub/Dealer-cleanup/`
 
 **Key Files**:
-- `dealer.exe` - Original Windows binary (compiled with gcc on x86_64)
-- Source code in C (if available) - Reference for exact behavior
-- `Random/Probe/rng_probe_x86` - RNG probe tool we used to reverse-engineer the random number generator
-- `Random/Probe/` directory - Contains tools and test data for RNG analysis
+- `dealer` - Reference C dealer binary (macOS build)
+- `dealer.c` - Main source code
+- `scan.l` - Flex lexer for input language
+- `defs.y` - Bison parser grammar
 
 **Purpose**:
 - Compatibility testing - our output must match exactly
@@ -262,9 +262,9 @@ compare-dealer -p 10 -s 1 -o test.dlr
 
 ## Additional Working Directories
 
-- `/Users/rick/Documents/Bridge/Dealer/dealer/` - Original dealer.exe source and binary
+- `/Users/rick/Development/GitHub/Dealer-cleanup/` - Reference C dealer source and binary
 - `/private/tmp` - Temporary workspace for test output and experiments
-- `/Users/rick/Documents/GitHub/dealer3/` - This project (main working directory)
+- `/Users/rick/Development/GitHub/dealer3/` - This project (main working directory)
 
 ## Quick Reference: Version History
 

@@ -1,11 +1,15 @@
+mod fast_parallel;
+mod parallel;
+
 use clap::Parser;
-use dealer_core::{DealGenerator, Position};
+use dealer_core::{Deal, DealGenerator, FastDealConfig, Position};
 use dealer_eval::{eval, eval_with_context, extract_constraint, extract_variables, EvalContext};
 use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
 use dealer_pbn::{
     format_hand_pbn, format_oneline, format_printall, format_printcompact, format_printew,
     format_printpbn, Vulnerability,
 };
+use fast_parallel::{FastParallelConfig, FastSupervisor};
 use std::fs::OpenOptions;
 use std::io::{self, BufWriter, Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -47,6 +51,10 @@ struct Args {
     /// Toggle verbose output - stats are shown by default, -v hides them (matches dealer.exe -v toggle behavior)
     #[arg(short = 'v', long = "verbose")]
     toggle_verbose: bool,
+
+    /// Force verbose stats on (cannot be toggled off by -v or PBN output)
+    #[arg(short = 'X', long = "stats-on")]
+    force_verbose: bool,
 
     /// Print version information and exit (matches dealer.exe -V)
     #[arg(short = 'V', long = "version")]
@@ -116,6 +124,22 @@ struct Args {
     /// Timeout in seconds (stop generation after this many seconds)
     #[arg(short = 't', long = "timeout")]
     timeout: Option<u64>,
+
+    /// Number of worker threads for parallel generation (0 = auto-detect, 1 = single-threaded)
+    /// Matches DealerV2_4's -R switch. Default is 0 (auto-detect) for maximum performance.
+    #[arg(short = 'R', long = "threads", default_value = "0")]
+    threads: usize,
+
+    /// Work units per batch for parallel generation (0 = auto, typically 200 × threads)
+    #[arg(long = "batch-size", default_value = "0")]
+    batch_size: usize,
+
+    /// Use legacy mode: single-threaded with dealer.exe-compatible RNG.
+    /// Required for bit-for-bit output comparison with dealer.exe.
+    /// Without this flag, dealer3 uses a faster parallel algorithm that produces
+    /// statistically equivalent but different random deals.
+    #[arg(long = "legacy")]
+    legacy: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -613,14 +637,14 @@ fn main() {
     // Start timing
     let start_time = SystemTime::now();
 
-    // Initialize deal generator
-    let mut generator = DealGenerator::new(seed);
+    // Collect predeal configuration (shared between legacy and fast modes)
+    let mut fast_predeal_config = FastDealConfig::new();
 
-    // Apply command-line predeal switches (these take precedence over input file predeals)
+    // Apply command-line predeal switches
     if let Some(ref cards_str) = args.north_predeal {
         match parse_predeal_cards(cards_str) {
             Ok(cards) => {
-                if let Err(e) = generator.predeal(Position::North, &cards) {
+                if let Err(e) = fast_predeal_config.predeal(Position::North, &cards) {
                     eprintln!("Error predealing to North: {}", e);
                     std::process::exit(1);
                 }
@@ -635,7 +659,7 @@ fn main() {
     if let Some(ref cards_str) = args.east_predeal {
         match parse_predeal_cards(cards_str) {
             Ok(cards) => {
-                if let Err(e) = generator.predeal(Position::East, &cards) {
+                if let Err(e) = fast_predeal_config.predeal(Position::East, &cards) {
                     eprintln!("Error predealing to East: {}", e);
                     std::process::exit(1);
                 }
@@ -650,7 +674,7 @@ fn main() {
     if let Some(ref cards_str) = args.south_predeal {
         match parse_predeal_cards(cards_str) {
             Ok(cards) => {
-                if let Err(e) = generator.predeal(Position::South, &cards) {
+                if let Err(e) = fast_predeal_config.predeal(Position::South, &cards) {
                     eprintln!("Error predealing to South: {}", e);
                     std::process::exit(1);
                 }
@@ -665,7 +689,7 @@ fn main() {
     if let Some(ref cards_str) = args.west_predeal {
         match parse_predeal_cards(cards_str) {
             Ok(cards) => {
-                if let Err(e) = generator.predeal(Position::West, &cards) {
+                if let Err(e) = fast_predeal_config.predeal(Position::West, &cards) {
                     eprintln!("Error predealing to West: {}", e);
                     std::process::exit(1);
                 }
@@ -680,20 +704,27 @@ fn main() {
     // Apply predeal statements from input file
     for statement in &program.statements {
         if let Statement::Predeal { position, cards } = statement {
-            if let Err(e) = generator.predeal(*position, cards) {
+            if let Err(e) = fast_predeal_config.predeal(*position, cards) {
                 eprintln!("Predeal error: {}", e);
                 std::process::exit(1);
             }
         }
     }
 
+    // Check if we have any predeal
+    let has_predeal = fast_predeal_config.predeal_count(Position::North) > 0
+        || fast_predeal_config.predeal_count(Position::East) > 0
+        || fast_predeal_config.predeal_count(Position::South) > 0
+        || fast_predeal_config.predeal_count(Position::West) > 0;
+
     let mut produced = 0;
-    let mut generated = 0;
+    let mut generated: usize = 0;
 
     // Verbose flag for stats output (matches dealer.exe behavior)
     // Default is true (stats shown), -v toggles it off
+    // -X forces stats on (cannot be toggled off)
     // Note: We intentionally don't replicate dealer.exe's PBN verbose toggle bug
-    let verbose_stats = !args.toggle_verbose;
+    let verbose_stats = args.force_verbose || !args.toggle_verbose;
 
     // Progress meter variables (matches dealer.exe behavior)
     let progress_interval = 10000; // Show progress every 10,000 deals
@@ -702,12 +733,262 @@ fn main() {
     // Track if we timed out
     let mut timed_out = false;
 
-    // Generate deals until we reach a limit
-    // Stop when either: we've produced enough matching deals, or generated enough total deals
-    while produced < produce_count && generated < max_generate {
-        // Check timeout (check every 1000 deals to avoid excessive time calls)
-        if let Some(timeout_secs) = args.timeout {
-            if generated % 1000 == 0 {
+    // Helper closure to process a matching deal (averages, frequencies, output, CSV)
+    #[allow(clippy::type_complexity)]
+    let process_matching_deal =
+        |deal: &Deal,
+         produced: usize,
+         averages: &mut Vec<(Option<String>, Expr, f64, usize)>,
+         frequencies: &mut Vec<(
+            Option<String>,
+            Expr,
+            HashMap<i32, usize>,
+            Option<(i32, i32)>,
+        )>,
+         csv_writer: &mut Option<BufWriter<std::fs::File>>| {
+            // Calculate averages for this matching deal
+            if !averages.is_empty() || !frequencies.is_empty() {
+                let ctx = EvalContext::with_variables(deal, &program_variables);
+
+                for (_, expr, sum, count) in averages.iter_mut() {
+                    match eval(expr, &ctx) {
+                        Ok(val) => {
+                            *sum += val as f64;
+                            *count += 1;
+                        }
+                        Err(e) => {
+                            eprintln!("Average evaluation error: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+
+                // Calculate frequencies for this matching deal
+                for (_, expr, histogram, _) in frequencies.iter_mut() {
+                    match eval(expr, &ctx) {
+                        Ok(val) => {
+                            *histogram.entry(val).or_insert(0) += 1;
+                        }
+                        Err(e) => {
+                            eprintln!("Frequency evaluation error: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            }
+
+            // In quiet mode, don't print deals (only statistics)
+            if !args.quiet {
+                let output = match output_format {
+                    OutputFormat::PrintAll => format_printall(deal, produced),
+                    OutputFormat::PrintEW => format_printew(deal),
+                    OutputFormat::PrintPBN => {
+                        let dealer_pos = dealer_position.map(|d| d.into());
+                        let vuln = vulnerability.map(|v| v.into());
+                        let event_name = args.title.as_deref();
+                        let input_file = args.input_file.as_deref();
+                        format_printpbn(
+                            deal,
+                            produced,
+                            dealer_pos,
+                            vuln,
+                            event_name,
+                            Some(seed),
+                            input_file,
+                        )
+                    }
+                    OutputFormat::PrintCompact => format_printcompact(deal),
+                    OutputFormat::PrintOneLine => format_oneline(deal),
+                };
+                print!("{}", output);
+            }
+
+            // Write CSV reports if any
+            if !csv_reports.is_empty() && csv_writer.is_some() {
+                let ctx = EvalContext::with_variables(deal, &program_variables);
+
+                for csv_terms in &csv_reports {
+                    let mut line_parts: Vec<String> = Vec::new();
+
+                    for term in csv_terms {
+                        match term {
+                            CsvTerm::Expression(expr) => match eval(expr, &ctx) {
+                                Ok(val) => line_parts.push(val.to_string()),
+                                Err(e) => {
+                                    eprintln!("CSV evaluation error: {}", e);
+                                    std::process::exit(1);
+                                }
+                            },
+                            CsvTerm::String(s) => {
+                                line_parts.push(format!("'{}'", s));
+                            }
+                            CsvTerm::Compass(pos) => {
+                                let hand = deal.hand(*pos);
+                                line_parts.push(format_hand_pbn(hand));
+                            }
+                            CsvTerm::Side(side) => {
+                                let (pos1, pos2) = match side {
+                                    Side::NS => (Position::North, Position::South),
+                                    Side::EW => (Position::East, Position::West),
+                                };
+                                let hand1 = deal.hand(pos1);
+                                let hand2 = deal.hand(pos2);
+                                line_parts.push(format!(
+                                    "{} {}",
+                                    format_hand_pbn(hand1),
+                                    format_hand_pbn(hand2)
+                                ));
+                            }
+                            CsvTerm::Deal => {
+                                let n = deal.hand(Position::North);
+                                let e = deal.hand(Position::East);
+                                let s = deal.hand(Position::South);
+                                let w = deal.hand(Position::West);
+                                line_parts.push(format!(
+                                    "{} {} {} {}",
+                                    format_hand_pbn(n),
+                                    format_hand_pbn(e),
+                                    format_hand_pbn(s),
+                                    format_hand_pbn(w)
+                                ));
+                            }
+                        }
+                    }
+
+                    // Write line with space before first item, commas between items
+                    if let Some(writer) = csv_writer.as_mut() {
+                        writeln!(writer, " {}", line_parts.join(",")).unwrap_or_else(|e| {
+                            eprintln!("CSV write error: {}", e);
+                            std::process::exit(1);
+                        });
+                    }
+                }
+            }
+        };
+
+    // Choose execution mode: legacy (single-threaded, dealer.exe compatible) or fast (parallel)
+    if args.legacy {
+        // Legacy mode: single-threaded with gnurandom for exact dealer.exe compatibility
+        // Initialize the legacy DealGenerator and apply predeal
+        let mut generator = DealGenerator::new(seed);
+
+        // Apply predeal to legacy generator
+        for statement in &program.statements {
+            if let Statement::Predeal { position, cards } = statement {
+                if let Err(e) = generator.predeal(*position, cards) {
+                    eprintln!("Predeal error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        // Command-line predeals were already validated with fast_predeal_config,
+        // now apply them to the legacy generator
+        if let Some(ref cards_str) = args.north_predeal {
+            if let Ok(cards) = parse_predeal_cards(cards_str) {
+                let _ = generator.predeal(Position::North, &cards);
+            }
+        }
+        if let Some(ref cards_str) = args.east_predeal {
+            if let Ok(cards) = parse_predeal_cards(cards_str) {
+                let _ = generator.predeal(Position::East, &cards);
+            }
+        }
+        if let Some(ref cards_str) = args.south_predeal {
+            if let Ok(cards) = parse_predeal_cards(cards_str) {
+                let _ = generator.predeal(Position::South, &cards);
+            }
+        }
+        if let Some(ref cards_str) = args.west_predeal {
+            if let Ok(cards) = parse_predeal_cards(cards_str) {
+                let _ = generator.predeal(Position::West, &cards);
+            }
+        }
+
+        while produced < produce_count && generated < max_generate {
+            // Check timeout (check every 1000 deals to avoid excessive time calls)
+            if let Some(timeout_secs) = args.timeout {
+                if generated.is_multiple_of(1000) {
+                    let elapsed = start_time.elapsed().unwrap().as_secs();
+                    if elapsed >= timeout_secs {
+                        timed_out = true;
+                        eprintln!(
+                            "Timeout after {} seconds ({} generated, {} produced)",
+                            elapsed, generated, produced
+                        );
+                        break;
+                    }
+                }
+            }
+
+            let deal = generator.generate();
+            generated += 1;
+
+            // Show progress meter if enabled (matches dealer.exe -m)
+            if args.progress && generated - last_progress_report >= progress_interval {
+                let elapsed = start_time.elapsed().unwrap().as_secs_f64();
+                eprintln!(
+                    "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
+                    generated, produced, elapsed
+                );
+                last_progress_report = generated;
+            }
+
+            // Evaluate constraint with pre-extracted variables (optimized hot path)
+            let eval_result = match constraint {
+                Some(expr) => eval_with_context(expr, &program_variables, &deal),
+                None => Ok(1), // No constraint = always match
+            };
+
+            match eval_result {
+                Ok(result) if result != 0 => {
+                    // Constraint satisfied (non-zero = true)
+                    process_matching_deal(
+                        &deal,
+                        produced,
+                        &mut averages,
+                        &mut frequencies,
+                        &mut csv_writer,
+                    );
+                    produced += 1;
+                }
+                Ok(_) => {
+                    // Constraint not satisfied (zero = false)
+                    continue;
+                }
+                Err(e) => {
+                    eprintln!("Evaluation error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+    } else {
+        // Fast mode: parallel execution with xoshiro256++ RNG
+        // Deals are independent - same seed produces same sequence
+        let config = FastParallelConfig {
+            num_threads: args.threads,
+        };
+
+        let mut supervisor = if has_predeal {
+            FastSupervisor::with_predeal(seed as u64, fast_predeal_config, config)
+        } else {
+            FastSupervisor::new(seed as u64, config)
+        };
+
+        let actual_batch_size = if args.batch_size == 0 {
+            200 * if args.threads == 0 {
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(1)
+            } else {
+                args.threads
+            }
+        } else {
+            args.batch_size
+        };
+
+        while produced < produce_count && generated < max_generate {
+            // Check timeout before each batch
+            if let Some(timeout_secs) = args.timeout {
                 let elapsed = start_time.elapsed().unwrap().as_secs();
                 if elapsed >= timeout_secs {
                     timed_out = true;
@@ -718,161 +999,62 @@ fn main() {
                     break;
                 }
             }
-        }
 
-        let deal = generator.generate();
-        generated += 1;
+            // Calculate batch size for this iteration
+            let remaining_to_generate = max_generate - generated;
+            let batch_size = actual_batch_size.min(remaining_to_generate);
 
-        // Show progress meter if enabled (matches dealer.exe -m)
-        if args.progress && generated - last_progress_report >= progress_interval {
-            let elapsed = start_time.elapsed().unwrap().as_secs_f64();
-            eprintln!(
-                "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
-                generated, produced, elapsed
-            );
-            last_progress_report = generated;
-        }
-
-        // Evaluate constraint with pre-extracted variables (optimized hot path)
-        let eval_result = match constraint {
-            Some(expr) => eval_with_context(expr, &program_variables, &deal),
-            None => Ok(1), // No constraint = always match (shouldn't happen normally)
-        };
-
-        match eval_result {
-            Ok(result) if result != 0 => {
-                // Constraint satisfied (non-zero = true)
-
-                // Calculate averages for this matching deal
-                if !averages.is_empty() || !frequencies.is_empty() {
-                    let ctx = EvalContext::with_variables(&deal, &program_variables);
-
-                    for (_, expr, sum, count) in &mut averages {
-                        match eval(expr, &ctx) {
-                            Ok(val) => {
-                                *sum += val as f64;
-                                *count += 1;
-                            }
-                            Err(e) => {
-                                eprintln!("Average evaluation error: {}", e);
-                                std::process::exit(1);
-                            }
-                        }
-                    }
-
-                    // Calculate frequencies for this matching deal
-                    for (_, expr, histogram, _) in &mut frequencies {
-                        match eval(expr, &ctx) {
-                            Ok(val) => {
-                                *histogram.entry(val).or_insert(0) += 1;
-                            }
-                            Err(e) => {
-                                eprintln!("Frequency evaluation error: {}", e);
-                                std::process::exit(1);
-                            }
-                        }
-                    }
-                }
-
-                // In quiet mode, don't print deals (only statistics)
-                if !args.quiet {
-                    let output = match output_format {
-                        OutputFormat::PrintAll => format_printall(&deal, produced),
-                        OutputFormat::PrintEW => format_printew(&deal),
-                        OutputFormat::PrintPBN => {
-                            // Note: dealer.exe has a bug where pbn.c toggles verbose each deal
-                            // We intentionally don't replicate this bug - verbose is controlled only by -v flag
-                            let dealer_pos = dealer_position.map(|d| d.into());
-                            let vuln = vulnerability.map(|v| v.into());
-                            let event_name = args.title.as_deref();
-                            let input_file = args.input_file.as_deref();
-                            format_printpbn(
-                                &deal,
-                                produced,
-                                dealer_pos,
-                                vuln,
-                                event_name,
-                                Some(seed),
-                                input_file,
-                            )
-                        }
-                        OutputFormat::PrintCompact => format_printcompact(&deal),
-                        OutputFormat::PrintOneLine => format_oneline(&deal),
-                    };
-                    print!("{}", output);
-                }
-
-                // Write CSV reports if any
-                if !csv_reports.is_empty() && csv_writer.is_some() {
-                    let ctx = EvalContext::with_variables(&deal, &program_variables);
-
-                    for csv_terms in &csv_reports {
-                        let mut line_parts: Vec<String> = Vec::new();
-
-                        for term in csv_terms {
-                            match term {
-                                CsvTerm::Expression(expr) => match eval(expr, &ctx) {
-                                    Ok(val) => line_parts.push(val.to_string()),
-                                    Err(e) => {
-                                        eprintln!("CSV evaluation error: {}", e);
-                                        std::process::exit(1);
-                                    }
-                                },
-                                CsvTerm::String(s) => {
-                                    line_parts.push(format!("'{}'", s));
-                                }
-                                CsvTerm::Compass(pos) => {
-                                    let hand = deal.hand(*pos);
-                                    line_parts.push(format_hand_pbn(hand));
-                                }
-                                CsvTerm::Side(side) => {
-                                    let (pos1, pos2) = match side {
-                                        Side::NS => (Position::North, Position::South),
-                                        Side::EW => (Position::East, Position::West),
-                                    };
-                                    let hand1 = deal.hand(pos1);
-                                    let hand2 = deal.hand(pos2);
-                                    line_parts.push(format!(
-                                        "{} {}",
-                                        format_hand_pbn(hand1),
-                                        format_hand_pbn(hand2)
-                                    ));
-                                }
-                                CsvTerm::Deal => {
-                                    let n = deal.hand(Position::North);
-                                    let e = deal.hand(Position::East);
-                                    let s = deal.hand(Position::South);
-                                    let w = deal.hand(Position::West);
-                                    line_parts.push(format!(
-                                        "{} {} {} {}",
-                                        format_hand_pbn(n),
-                                        format_hand_pbn(e),
-                                        format_hand_pbn(s),
-                                        format_hand_pbn(w)
-                                    ));
-                                }
-                            }
-                        }
-
-                        // Write line with space before first item, commas between items
-                        if let Some(writer) = csv_writer.as_mut() {
-                            writeln!(writer, " {}", line_parts.join(",")).unwrap_or_else(|e| {
-                                eprintln!("CSV write error: {}", e);
-                                std::process::exit(1);
-                            });
-                        }
-                    }
-                }
-
-                produced += 1;
+            if batch_size == 0 {
+                break;
             }
-            Ok(_) => {
-                // Constraint not satisfied (zero = false)
-                continue;
-            }
-            Err(e) => {
-                eprintln!("Evaluation error: {}", e);
-                std::process::exit(1);
+
+            // Process batch in parallel
+            // The filter closure evaluates the constraint for each deal
+            let results = supervisor.process_batch(batch_size, |deal| {
+                match constraint {
+                    Some(expr) => {
+                        // Note: This creates a new EvalContext for each deal in parallel
+                        // The program_variables are shared (read-only)
+                        match eval_with_context(expr, &program_variables, deal) {
+                            Ok(result) => result != 0,
+                            Err(_) => false, // Treat errors as non-matching
+                        }
+                    }
+                    None => true, // No constraint = always match
+                }
+            });
+
+            // Process results in order, stopping when we have enough
+            for result in results {
+                generated += 1;
+
+                // Show progress meter if enabled
+                if args.progress && generated - last_progress_report >= progress_interval {
+                    let elapsed = start_time.elapsed().unwrap().as_secs_f64();
+                    eprintln!(
+                        "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
+                        generated, produced, elapsed
+                    );
+                    last_progress_report = generated;
+                }
+
+                if result.passed && produced < produce_count {
+                    process_matching_deal(
+                        &result.deal,
+                        produced,
+                        &mut averages,
+                        &mut frequencies,
+                        &mut csv_writer,
+                    );
+                    produced += 1;
+
+                    // Stop counting generated deals once we've produced enough
+                    // This matches dealer.exe behavior where it stops at the deal that
+                    // satisfied the produce count
+                    if produced >= produce_count {
+                        break;
+                    }
+                }
             }
         }
     }
