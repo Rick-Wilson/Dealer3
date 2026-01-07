@@ -1,8 +1,8 @@
 use dealer_core::{Card, Deal, Position, Suit};
 use dealer_dds::{Denomination, DoubleDummySolver};
 use dealer_parser::{BinaryOp, Expr, Function, Program, ShapePattern, Statement, UnaryOp};
+use rustc_hash::FxHashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 /// IMP conversion table (from DealerV2_4)
 /// Maps score differences to IMP values
@@ -306,15 +306,18 @@ pub struct EvalContext<'a> {
     pub deal: &'a Deal,
     /// Variable name -> Expression tree reference mapping
     /// Variables store references to expression trees (no cloning needed)
-    pub variables: &'a HashMap<String, &'a Expr>,
+    /// FxHashMap uses a faster (non-cryptographic) hash function
+    pub variables: &'a FxHashMap<String, &'a Expr>,
     /// Cache of evaluated variable values (per-deal)
     /// Using RefCell for interior mutability since eval takes &self
-    cache: RefCell<HashMap<String, i32>>,
+    /// Keys are &str references to avoid String cloning on cache insert
+    /// FxHashMap uses a faster (non-cryptographic) hash function
+    cache: RefCell<FxHashMap<&'a str, i32>>,
 }
 
 /// Empty variables map for contexts without variables
-static EMPTY_VARIABLES: std::sync::LazyLock<HashMap<String, &'static Expr>> =
-    std::sync::LazyLock::new(HashMap::new);
+static EMPTY_VARIABLES: std::sync::LazyLock<FxHashMap<String, &'static Expr>> =
+    std::sync::LazyLock::new(FxHashMap::default);
 
 impl<'a> EvalContext<'a> {
     /// Create a context without any variables (for simple expressions)
@@ -322,24 +325,24 @@ impl<'a> EvalContext<'a> {
         EvalContext {
             deal,
             variables: &EMPTY_VARIABLES,
-            cache: RefCell::new(HashMap::new()),
+            cache: RefCell::new(FxHashMap::default()),
         }
     }
 
     /// Create a context with pre-defined variable references
-    pub fn with_variables(deal: &'a Deal, variables: &'a HashMap<String, &'a Expr>) -> Self {
+    pub fn with_variables(deal: &'a Deal, variables: &'a FxHashMap<String, &'a Expr>) -> Self {
         EvalContext {
             deal,
             variables,
-            cache: RefCell::new(HashMap::new()),
+            cache: RefCell::new(FxHashMap::default()),
         }
     }
 }
 
 /// Extract variable references from a program (call once before the eval loop)
-/// Returns a HashMap mapping variable names to references to their expression trees
-pub fn extract_variables(program: &Program) -> HashMap<String, &Expr> {
-    let mut variables = HashMap::new();
+/// Returns a FxHashMap mapping variable names to references to their expression trees
+pub fn extract_variables(program: &Program) -> FxHashMap<String, &Expr> {
+    let mut variables = FxHashMap::default();
     for statement in &program.statements {
         if let Statement::Assignment { name, expr } = statement {
             variables.insert(name.clone(), expr);
@@ -371,7 +374,7 @@ pub fn extract_constraint(program: &Program) -> Option<&Expr> {
 /// extract_constraint() once before the loop, then call this for each deal.
 pub fn eval_with_context(
     constraint: &Expr,
-    variables: &HashMap<String, &Expr>,
+    variables: &FxHashMap<String, &Expr>,
     deal: &Deal,
 ) -> Result<i32, EvalError> {
     let ctx = EvalContext::with_variables(deal, variables);
@@ -407,17 +410,18 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
         Expr::Literal(value) => Ok(*value),
 
         Expr::Variable(name) => {
-            // Check cache first
-            if let Some(&cached_value) = ctx.cache.borrow().get(name) {
+            // Check cache first (use &str for lookup to avoid allocation)
+            if let Some(&cached_value) = ctx.cache.borrow().get(name.as_str()) {
                 return Ok(cached_value);
             }
 
             // Look up variable and evaluate its stored expression tree
-            match ctx.variables.get(name) {
-                Some(var_expr) => {
+            // Use get_key_value to get the key with lifetime 'a for cache insertion
+            match ctx.variables.get_key_value(name) {
+                Some((key, var_expr)) => {
                     let value = eval(var_expr, ctx)?;
-                    // Cache the computed value
-                    ctx.cache.borrow_mut().insert(name.clone(), value);
+                    // Cache the computed value using the key reference (no clone!)
+                    ctx.cache.borrow_mut().insert(key.as_str(), value);
                     Ok(value)
                 }
                 None => Err(EvalError::UndefinedVariable(name.clone())),
@@ -427,7 +431,7 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
         Expr::Position(pos) => {
             // Check if this position name is actually a variable override
             // dealer.exe allows variables named n, s, e, w to shadow position keywords
-            let pos_name = match pos {
+            let pos_name: &'static str = match pos {
                 Position::North => "n",
                 Position::South => "s",
                 Position::East => "e",
@@ -440,9 +444,10 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
             }
 
             // Check if variable is defined - if so, use it instead of position
-            if let Some(var_expr) = ctx.variables.get(pos_name) {
+            // Use get_key_value to get the key with proper lifetime for cache insertion
+            if let Some((key, var_expr)) = ctx.variables.get_key_value(pos_name) {
                 let value = eval(var_expr, ctx)?;
-                ctx.cache.borrow_mut().insert(pos_name.to_string(), value);
+                ctx.cache.borrow_mut().insert(key.as_str(), value);
                 return Ok(value);
             }
 

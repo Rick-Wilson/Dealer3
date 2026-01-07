@@ -8,3 +8,4 @@ license = "Unlicense"
 dealer-core = { path = "../dealer-core" }
 dealer-parser = { path = "../dealer-parser" }
 dealer-dds = { path = "../dealer-dds" }
+rustc-hash = "2.0"
