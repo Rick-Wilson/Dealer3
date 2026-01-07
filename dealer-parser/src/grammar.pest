@@ -173,10 +173,11 @@ card = @{
     rank ~ suit_char
 }
 
-// Card names for predeal: SA, HKQ, DT62, C95 (suit + one or more ranks)
+// Card names for predeal: SA, HKQ, DT62, C95, or just S/H/D/C (suit + zero or more ranks)
 // dealer.exe predeal uses suit-first format: SA = Ace of Spades, ST62 = Spades T-6-2
+// A suit alone (e.g., "S") means no cards specified for that suit (placeholder/void)
 predeal_card = @{
-    suit_char ~ rank+
+    suit_char ~ rank*
 }
 
 rank = { "A" | "K" | "Q" | "J" | "T" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" }

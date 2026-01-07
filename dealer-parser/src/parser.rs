@@ -441,12 +441,13 @@ fn parse_card(card_str: &str) -> Result<dealer_core::Card, ParseError> {
     Ok(dealer_core::Card::new(suit, rank))
 }
 
-/// Parse cards from a string like "SA", "HKQ", "DT62", "C95"
-/// dealer.exe predeal format: suit character followed by one or more rank characters
+/// Parse cards from a string like "SA", "HKQ", "DT62", "C95", or just "S" (suit only)
+/// dealer.exe predeal format: suit character followed by zero or more rank characters
+/// A suit alone (e.g., "S") returns an empty vector, meaning no specific cards for that suit
 fn parse_cards(card_str: &str) -> Result<Vec<dealer_core::Card>, ParseError> {
-    if card_str.len() < 2 {
+    if card_str.is_empty() {
         return Err(ParseError {
-            message: format!("Card spec must be at least 2 characters, got {}", card_str),
+            message: "Card spec cannot be empty".to_string(),
         });
     }
 
@@ -1049,5 +1050,44 @@ mod tests {
             }
             _ => panic!("Expected ternary expression"),
         }
+    }
+
+    #[test]
+    fn test_parse_predeal_with_suit_only() {
+        // Predeal with suit-only holdings (no specific cards for that suit)
+        // dealer.exe allows "S,H,DAK,CAK" where S and H have no cards specified
+        let program = parse_program("predeal north S,H,DAK,CAK").unwrap();
+
+        // Find the Predeal statement
+        let predeal = program.statements.iter().find_map(|s| {
+            if let Statement::Predeal { position, cards } = s {
+                Some((position, cards))
+            } else {
+                None
+            }
+        });
+        let (pos, cards) = predeal.expect("Should have a predeal statement");
+        assert_eq!(*pos, Position::North);
+        // Only DAK and CAK should have cards, S and H are empty
+        assert_eq!(cards.len(), 4); // DA, DK, CA, CK
+    }
+
+    #[test]
+    fn test_parse_predeal_cards() {
+        // Test parsing of predeal card specs
+        let program = parse_program("predeal south SAK,HQ,D,CAKQJT").unwrap();
+
+        // Find the Predeal statement
+        let predeal = program.statements.iter().find_map(|s| {
+            if let Statement::Predeal { position, cards } = s {
+                Some((position, cards))
+            } else {
+                None
+            }
+        });
+        let (pos, cards) = predeal.expect("Should have a predeal statement");
+        assert_eq!(*pos, Position::South);
+        // SAK = 2, HQ = 1, D = 0, CAKQJT = 5
+        assert_eq!(cards.len(), 8);
     }
 }
