@@ -554,10 +554,15 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
         }
 
         Rule::comparison => {
+            // Chained comparisons: a==b==c becomes (a==b) && (b==c)
             let mut pairs = pair.into_inner();
-            let left = build_ast(pairs.next().unwrap())?;
+            let first = build_ast(pairs.next().unwrap())?;
 
-            if let Some(op_pair) = pairs.next() {
+            // Collect all operators and operands
+            let mut operands = vec![first];
+            let mut operators = Vec::new();
+
+            while let Some(op_pair) = pairs.next() {
                 let op = match op_pair.as_str() {
                     "==" => BinaryOp::Eq,
                     "!=" => BinaryOp::Ne,
@@ -571,10 +576,34 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                         })
                     }
                 };
-                let right = build_ast(pairs.next().unwrap())?;
-                Ok(Expr::binary(op, left, right))
+                operators.push(op);
+                operands.push(build_ast(pairs.next().unwrap())?);
+            }
+
+            if operators.is_empty() {
+                // No comparison, just return the operand
+                Ok(operands.into_iter().next().unwrap())
+            } else if operators.len() == 1 {
+                // Single comparison: a op b
+                let right = operands.pop().unwrap();
+                let left = operands.pop().unwrap();
+                Ok(Expr::binary(operators[0], left, right))
             } else {
-                Ok(left)
+                // Chained comparison: a op1 b op2 c ... becomes (a op1 b) && (b op2 c) && ...
+                let mut comparisons = Vec::new();
+                for i in 0..operators.len() {
+                    comparisons.push(Expr::binary(
+                        operators[i],
+                        operands[i].clone(),
+                        operands[i + 1].clone(),
+                    ));
+                }
+                // AND all the comparisons together
+                let mut result = comparisons.remove(0);
+                for cmp in comparisons {
+                    result = Expr::binary(BinaryOp::And, result, cmp);
+                }
+                Ok(result)
             }
         }
 
@@ -1089,5 +1118,82 @@ mod tests {
         assert_eq!(*pos, Position::South);
         // SAK = 2, HQ = 1, D = 0, CAKQJT = 5
         assert_eq!(cards.len(), 8);
+    }
+
+    #[test]
+    fn test_parse_chained_comparison() {
+        // Chained comparison: a==b==c becomes (a==b) && (b==c)
+        let ast = parse("spades(west)==hearts(west)==3").unwrap();
+
+        // Should be: (spades(west)==hearts(west)) && (hearts(west)==3)
+        match ast {
+            Expr::BinaryOp {
+                op: BinaryOp::And,
+                left,
+                right,
+            } => {
+                // Left should be spades(west)==hearts(west)
+                match *left {
+                    Expr::BinaryOp {
+                        op: BinaryOp::Eq, ..
+                    } => (),
+                    _ => panic!("Expected left to be Eq comparison"),
+                }
+                // Right should be hearts(west)==3
+                match *right {
+                    Expr::BinaryOp {
+                        op: BinaryOp::Eq, ..
+                    } => (),
+                    _ => panic!("Expected right to be Eq comparison"),
+                }
+            }
+            _ => panic!("Expected AND operation for chained comparison"),
+        }
+    }
+
+    #[test]
+    fn test_parse_chained_comparison_with_parens() {
+        // Chained comparison with parenthesized OR: a==b==(3 or 4)
+        // This is from GIB_1C-P-Resp.dlr: spades(west)==hearts(west)==(3 or 4)
+        let ast = parse("spades(west)==hearts(west)==(3 or 4)").unwrap();
+
+        // Should be: (spades(west)==hearts(west)) && (hearts(west)==(3 or 4))
+        match ast {
+            Expr::BinaryOp {
+                op: BinaryOp::And, ..
+            } => (),
+            _ => panic!("Expected AND operation for chained comparison"),
+        }
+    }
+
+    #[test]
+    fn test_parse_triple_chained_comparison() {
+        // Triple chain: a==b==c==d becomes (a==b) && (b==c) && (c==d)
+        let ast = parse("1==2==3==4").unwrap();
+
+        // Should be: ((1==2) && (2==3)) && (3==4)
+        match ast {
+            Expr::BinaryOp {
+                op: BinaryOp::And,
+                left,
+                right,
+            } => {
+                // Left should be (1==2) && (2==3)
+                match *left {
+                    Expr::BinaryOp {
+                        op: BinaryOp::And, ..
+                    } => (),
+                    _ => panic!("Expected left to be AND"),
+                }
+                // Right should be (3==4)
+                match *right {
+                    Expr::BinaryOp {
+                        op: BinaryOp::Eq, ..
+                    } => (),
+                    _ => panic!("Expected right to be Eq"),
+                }
+            }
+            _ => panic!("Expected AND operation for triple chain"),
+        }
     }
 }

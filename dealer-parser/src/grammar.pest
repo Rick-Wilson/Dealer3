@@ -103,7 +103,8 @@ or_keyword = @{ ^"or" ~ !(ASCII_ALPHANUMERIC | "_") }
 and_keyword = @{ ^"and" ~ !(ASCII_ALPHANUMERIC | "_") }
 not_keyword = @{ ^"not" ~ !(ASCII_ALPHANUMERIC | "_") }
 
-comparison = { additive ~ (cmp_op ~ additive)? }
+// Chained comparisons: a==b==c means (a==b) && (b==c)
+comparison = { additive ~ (cmp_op ~ additive)* }
 additive = { multiplicative ~ (add_op ~ multiplicative)* }
 multiplicative = { unary ~ (mul_op ~ unary)* }
 // Unary operators: negation (-) and logical not (!/not)
