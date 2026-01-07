@@ -1,6 +1,6 @@
 use clap::Parser;
 use dealer_core::{DealGenerator, Position};
-use dealer_eval::{eval, eval_program, EvalContext};
+use dealer_eval::{eval, eval_with_context, extract_constraint, extract_variables, EvalContext};
 use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
 use dealer_pbn::{
     format_hand_pbn, format_oneline, format_printall, format_printcompact, format_printew,
@@ -32,7 +32,7 @@ struct Args {
     #[arg(short = 's', long = "seed")]
     seed: Option<u32>,
 
-    /// Output format (defaults to oneline, or value from input file if not specified)
+    /// Output format (defaults to printall, or value from input file if not specified)
     #[arg(short = 'f', long = "format")]
     format: Option<OutputFormat>,
 
@@ -44,9 +44,9 @@ struct Args {
     #[arg(long = "vulnerable")]
     vulnerability: Option<VulnerabilityArg>,
 
-    /// Verbose output, prints statistics at the end of the run (matches dealer.exe -v)
+    /// Toggle verbose output - stats are shown by default, -v hides them (matches dealer.exe -v toggle behavior)
     #[arg(short = 'v', long = "verbose")]
-    verbose: bool,
+    toggle_verbose: bool,
 
     /// Print version information and exit (matches dealer.exe -V)
     #[arg(short = 'V', long = "version")]
@@ -272,6 +272,23 @@ fn parse_predeal_cards(card_str: &str) -> Result<Vec<dealer_core::Card>, String>
     }
 
     Ok(cards)
+}
+
+/// Format a float using %g-style formatting (like C's printf %g)
+/// Removes trailing zeros and uses shortest representation
+fn format_g(val: f64) -> String {
+    // %g uses %f or %e depending on the value, removing trailing zeros
+    // For our use case (averages), values are typically small, so we use %f style
+    if val == val.trunc() {
+        // Integer value - format without decimal
+        format!("{}", val as i64)
+    } else {
+        // Decimal value - format with minimal precision, strip trailing zeros
+        let s = format!("{:.6}", val);
+        let s = s.trim_end_matches('0');
+        let s = s.trim_end_matches('.');
+        s.to_string()
+    }
 }
 
 fn main() {
@@ -530,13 +547,10 @@ fn main() {
         }
     }
 
-    // Extract variables from program statements (for use in action block evaluation)
-    let mut program_variables: HashMap<String, Expr> = HashMap::new();
-    for statement in &program.statements {
-        if let Statement::Assignment { name, expr } = statement {
-            program_variables.insert(name.clone(), expr.clone());
-        }
-    }
+    // Extract variables and constraint from program (do this once before the loop)
+    // This avoids cloning expression trees on every iteration
+    let program_variables = extract_variables(&program);
+    let constraint = extract_constraint(&program);
 
     // Determine limits for generation
     // -g limits total hands generated, -p limits matching hands produced
@@ -557,7 +571,7 @@ fn main() {
     let output_format = args
         .format
         .or(format_from_input)
-        .unwrap_or(OutputFormat::PrintOneLine); // Default format
+        .unwrap_or(OutputFormat::PrintAll); // Default format (matches dealer.exe)
 
     let dealer_position = args.dealer.or(dealer_from_input);
 
@@ -643,6 +657,11 @@ fn main() {
     let mut produced = 0;
     let mut generated = 0;
 
+    // Verbose flag for stats output (matches dealer.exe behavior)
+    // Default is true (stats shown), -v toggles it off
+    // Note: We intentionally don't replicate dealer.exe's PBN verbose toggle bug
+    let verbose_stats = !args.toggle_verbose;
+
     // Progress meter variables (matches dealer.exe behavior)
     let progress_interval = 10000; // Show progress every 10,000 deals
     let mut last_progress_report = 0;
@@ -681,14 +700,19 @@ fn main() {
             last_progress_report = generated;
         }
 
-        // Evaluate program (includes variable assignments and final constraint)
-        match eval_program(&program, &deal) {
+        // Evaluate constraint with pre-extracted variables (optimized hot path)
+        let eval_result = match constraint {
+            Some(expr) => eval_with_context(expr, &program_variables, &deal),
+            None => Ok(1), // No constraint = always match (shouldn't happen normally)
+        };
+
+        match eval_result {
             Ok(result) if result != 0 => {
                 // Constraint satisfied (non-zero = true)
 
                 // Calculate averages for this matching deal
                 if !averages.is_empty() || !frequencies.is_empty() {
-                    let ctx = EvalContext::with_variables(&deal, program_variables.clone());
+                    let ctx = EvalContext::with_variables(&deal, &program_variables);
 
                     for (_, expr, sum, count) in &mut averages {
                         match eval(expr, &ctx) {
@@ -723,9 +747,12 @@ fn main() {
                         OutputFormat::PrintAll => format_printall(&deal, produced),
                         OutputFormat::PrintEW => format_printew(&deal),
                         OutputFormat::PrintPBN => {
+                            // Note: dealer.exe has a bug where pbn.c toggles verbose each deal
+                            // We intentionally don't replicate this bug - verbose is controlled only by -v flag
                             let dealer_pos = dealer_position.map(|d| d.into());
                             let vuln = vulnerability.map(|v| v.into());
                             let event_name = args.title.as_deref();
+                            let input_file = args.input_file.as_deref();
                             format_printpbn(
                                 &deal,
                                 produced,
@@ -733,6 +760,7 @@ fn main() {
                                 vuln,
                                 event_name,
                                 Some(seed),
+                                input_file,
                             )
                         }
                         OutputFormat::PrintCompact => format_printcompact(&deal),
@@ -743,7 +771,7 @@ fn main() {
 
                 // Write CSV reports if any
                 if !csv_reports.is_empty() && csv_writer.is_some() {
-                    let ctx = EvalContext::with_variables(&deal, program_variables.clone());
+                    let ctx = EvalContext::with_variables(&deal, &program_variables);
 
                     for csv_terms in &csv_reports {
                         let mut line_parts: Vec<String> = Vec::new();
@@ -820,31 +848,32 @@ fn main() {
     let elapsed = start_time.elapsed().unwrap();
     let elapsed_secs = elapsed.as_secs_f64();
 
-    // Print averages if any were requested
+    // Print averages if any were requested (format matches dealer.exe %g format)
     if !averages.is_empty() {
-        eprintln!();
         for (label, _, sum, count) in &averages {
             let avg = if *count > 0 {
                 sum / (*count as f64)
             } else {
                 0.0
             };
+            // Output using %g-style formatting to match dealer.exe
+            // %g removes trailing zeros and uses shortest representation
             if let Some(label_text) = label {
-                eprintln!("{}: {:.2}", label_text, avg);
+                eprintln!("{}: {}", label_text, format_g(avg));
             } else {
-                eprintln!("Average: {:.2}", avg);
+                eprintln!("Average: {}", format_g(avg));
             }
         }
     }
 
-    // Print frequency tables if any were requested
+    // Print frequency tables if any were requested (format matches dealer.exe)
     if !frequencies.is_empty() {
         for (label, _, histogram, range) in &frequencies {
-            eprintln!();
             if let Some(label_text) = label {
-                eprintln!("{}:", label_text);
+                // dealer.exe format: "Frequency <label>:" - preserve label exactly as defined
+                eprintln!("Frequency {}:", label_text);
             } else {
-                eprintln!("Frequency:");
+                eprintln!("Frequency :");
             }
 
             // Determine range to display
@@ -858,29 +887,47 @@ fn main() {
                 (0, 0)
             };
 
-            // Print frequency table
+            // Print frequency table (format matches dealer.exe: "%5d\t%8ld")
+            // dealer.exe prints "Low" and "High" rows for out-of-range values when a range is specified
+            if range.is_some() {
+                // Count values below the range
+                let low_count: usize = histogram
+                    .iter()
+                    .filter(|(&k, _)| k < min_val)
+                    .map(|(_, &v)| v)
+                    .sum();
+                if low_count > 0 {
+                    eprintln!("Low\t{:8}", low_count);
+                }
+            }
+
             for val in min_val..=max_val {
                 let count = histogram.get(&val).unwrap_or(&0);
-                let percentage = if produced > 0 {
-                    (*count as f64 / produced as f64) * 100.0
-                } else {
-                    0.0
-                };
-                eprintln!("{:3} {:6} ({:5.2}%)", val, count, percentage);
+                eprintln!("{:5}\t{:8}", val, count);
+            }
+
+            if range.is_some() {
+                // Count values above the range
+                let high_count: usize = histogram
+                    .iter()
+                    .filter(|(&k, _)| k > max_val)
+                    .map(|(_, &v)| v)
+                    .sum();
+                if high_count > 0 {
+                    eprintln!("High\t{:8}", high_count);
+                }
             }
         }
     }
 
-    // Print statistics to stderr (like dealer.exe does)
-    // In verbose mode (-v), always show stats
-    // Without verbose mode, show stats by default (dealer3 behavior)
-    // Note: This matches dealer.exe behavior where -v enables verbose output
-    if args.verbose {
-        eprintln!();
-        eprintln!("Generated {} hands", generated);
-        eprintln!("Produced {} hands", produced);
-        eprintln!("Initial random seed {}", seed);
-        eprintln!("Time needed  {:7.3} sec", elapsed_secs);
+    // Print stats if verbose_stats is true (matches dealer.exe behavior)
+    // verbose_stats starts true and is toggled by PBN output
+    // So: PBN with odd count = no stats, PBN with even count = stats, other formats = always stats
+    if verbose_stats {
+        println!("Generated {} hands", generated);
+        println!("Produced {} hands", produced);
+        println!("Initial random seed {}", seed);
+        println!("Time needed  {:7.3} sec", elapsed_secs);
     }
 
     // Exit with error code if timed out

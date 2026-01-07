@@ -171,32 +171,58 @@ Priority features for next implementation:
 **IP Address**: `10.211.55.5`
 **Username**: `rick`
 
-**IMPORTANT**: SSH sessions don't inherit user's mapped drives. You must map the P: drive before accessing files:
+**Preferred Method**: Use the shell aliases `win-dealer` and `compare-dealer` for all Windows dealer.exe testing.
 
-**Usage**: When you need to run dealer.exe on Windows to test exact compatibility:
+#### win-dealer - Run dealer.exe on Windows VM
 ```bash
-# Run dealer with a .dlr file from Practice-Bidding-Scenarios
-# First map P: drive, then run dealer
-ssh rick@10.211.55.5 'net use P: "\\Mac\Home\Developer\GitHub\Practice-Bidding-Scenarios" >nul 2>&1 & dealer -p 10 -s 42 P:\dlr\Last_Train_GT2.dlr'
+# Run with a .dlr file (supports relative paths, auto-converts to Windows G: path)
+win-dealer -p 10 -s 42 test-data/dlr-test/pruned.dlr
 
-# For simple inline expressions (no drive mapping needed)
+# Pipe conditions via stdin
+echo "hcp(north) >= 20" | win-dealer -p 10 -s 1
+
+# With custom timeout (default 10s)
+win-dealer -t 60 -p 100 -s 42 large-test.dlr
+
+# Show help
+win-dealer -h
+```
+
+#### compare-dealer - Compare dealer3 vs dealer.exe output
+```bash
+# Compare output from both dealers (uses development build by default)
+compare-dealer -p 10 -s 1 test.dlr
+
+# Pipe conditions via stdin
+echo "shape(north, any 6xxx)" | compare-dealer -p 10 -s 1
+
+# Show raw output from both runs
+compare-dealer -p 10 -s 1 -o test.dlr
+
+# Skip pretest (pretest runs -p 1 first to quickly detect failures)
+compare-dealer --no-pretest -p 100 -s 1 test.dlr
+
+# Use a specific Rust binary instead of development build
+compare-dealer -r /path/to/dealer -p 10 -s 1 test.dlr
+
+# Show help
+compare-dealer -h
+```
+
+**Manual SSH** (only if scripts don't work):
+```bash
+# Map G: drive and run dealer (drive mapping required each session)
+ssh rick@10.211.55.5 'net use G: "\\Mac\Home\Development" >nul 2>&1 & dealer -p 10 -s 42 G:\GitHub\dealer3\test.dlr'
+
+# Simple inline expressions (no drive mapping needed)
 ssh rick@10.211.55.5 "echo 'hcp(north) >= 20' | dealer -p 10 -s 1"
-
-# Compare dealer3 vs dealer.exe output directly
-diff <(ssh rick@10.211.55.5 "echo 'hcp(north) >= 20' | dealer -p 10 -s 1") \
-     <(echo "hcp(north) >= 20" | dealer -p 10 -s 1)
-
-# Test with a .dlr file - map drive first
-ssh rick@10.211.55.5 'net use P: "\\Mac\Home\Developer\GitHub\Practice-Bidding-Scenarios" >nul 2>&1 & dealer -p 10 -s 42 P:\dlr\SomeFile.dlr'
-
-# Interactive SSH session for testing
-ssh rick@10.211.55.5
 ```
 
 **Notes**:
 - The Windows VM has `dealer` in PATH at `C:\Dealer\dealer.exe`
-- P: drive maps to `/Users/rick/Developer/GitHub/Practice-Bidding-Scenarios` via Parallels shared folders
-- The `net use` command is idempotent (won't fail if already mapped)
+- G: drive maps to `/Users/rick/Development` via Parallels shared folders
+- Files at `/Users/rick/Development/GitHub/dealer3/foo.dlr` become `G:\GitHub\dealer3\foo.dlr`
+- Shell aliases defined in `~/.zshrc`, scripts in `scripts/` directory
 
 ### DealerV2 (Hans van Staveren, expanded version)
 **Location**: `/tmp/dealerv2` (cloned locally)
@@ -210,20 +236,22 @@ ssh rick@10.211.55.5
 
 ## Testing Against dealer.exe
 
-### Local Testing (Mac)
-The dealer.exe binary might be runnable via Wine or cross-compilation tools if needed.
+### Preferred Method: compare-dealer
+Use `compare-dealer` for all compatibility testing. It automatically:
+- Runs both Rust dealer3 and Windows dealer.exe with the same arguments
+- Compares deals, produced count, and generated count
+- Runs a quick pretest (-p 1) to catch failures fast
+- Shows timing comparison and warns if Rust is significantly slower
 
-### Comparison Testing
 ```bash
-# Test identical output with same seed (if dealer.exe is accessible)
-diff <(echo "hcp(north) >= 20" | /path/to/dealer.exe -p 10 -s 1) \
-     <(echo "hcp(north) >= 20" | dealer -p 10 -s 1)
+# Basic comparison
+compare-dealer -p 10 -s 1 test.dlr
 
-# Test RNG compatibility (critical!)
-# Both should produce identical sequences with same seed
-dealer -s 1 -p 100 > dealer3.out
-dealer.exe -s 1 -p 100 > dealer_original.out
-diff dealer3.out dealer_original.out
+# With stdin input
+echo "hcp(north) >= 20" | compare-dealer -p 10 -s 1
+
+# Show raw output to debug differences
+compare-dealer -p 10 -s 1 -o test.dlr
 ```
 
 ### Key Compatibility Tests

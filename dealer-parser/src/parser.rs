@@ -223,12 +223,12 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 }
             };
 
-            // Parse cards
+            // Parse cards - each card_pair may contain multiple cards (e.g., "ST62" = 3 cards)
             let mut cards = Vec::new();
             for card_pair in parts {
                 let card_str = card_pair.as_str();
-                let card = parse_card(card_str)?;
-                cards.push(card);
+                let parsed_cards = parse_cards(card_str)?;
+                cards.extend(parsed_cards);
             }
 
             Ok(Statement::Predeal { position, cards })
@@ -339,12 +339,22 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             let expr = build_ast(expr_pair)?;
 
             // Parse range (min, max)
-            let min = parts.next().unwrap().as_str().parse::<i32>().map_err(|_| ParseError {
-                message: "Invalid frequency range min".to_string(),
-            })?;
-            let max = parts.next().unwrap().as_str().parse::<i32>().map_err(|_| ParseError {
-                message: "Invalid frequency range max".to_string(),
-            })?;
+            let min = parts
+                .next()
+                .unwrap()
+                .as_str()
+                .parse::<i32>()
+                .map_err(|_| ParseError {
+                    message: "Invalid frequency range min".to_string(),
+                })?;
+            let max = parts
+                .next()
+                .unwrap()
+                .as_str()
+                .parse::<i32>()
+                .map_err(|_| ParseError {
+                    message: "Invalid frequency range max".to_string(),
+                })?;
 
             Ok(Statement::Action {
                 averages: Vec::new(),
@@ -383,7 +393,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     }
 }
 
-/// Parse a card from a string like "AS", "KH", "2C"
+/// Parse a single card from a string like "AS", "KH", "2C" (rank+suit format for hascard)
 fn parse_card(card_str: &str) -> Result<dealer_core::Card, ParseError> {
     if card_str.len() != 2 {
         return Err(ParseError {
@@ -429,6 +439,58 @@ fn parse_card(card_str: &str) -> Result<dealer_core::Card, ParseError> {
     };
 
     Ok(dealer_core::Card::new(suit, rank))
+}
+
+/// Parse cards from a string like "SA", "HKQ", "DT62", "C95"
+/// dealer.exe predeal format: suit character followed by one or more rank characters
+fn parse_cards(card_str: &str) -> Result<Vec<dealer_core::Card>, ParseError> {
+    if card_str.len() < 2 {
+        return Err(ParseError {
+            message: format!("Card spec must be at least 2 characters, got {}", card_str),
+        });
+    }
+
+    let chars: Vec<char> = card_str.chars().collect();
+    let suit_char = chars[0];
+
+    let suit = match suit_char {
+        'S' => dealer_core::Suit::Spades,
+        'H' => dealer_core::Suit::Hearts,
+        'D' => dealer_core::Suit::Diamonds,
+        'C' => dealer_core::Suit::Clubs,
+        _ => {
+            return Err(ParseError {
+                message: format!("Invalid suit: {}", suit_char),
+            })
+        }
+    };
+
+    let mut cards = Vec::new();
+    for &rank_char in &chars[1..] {
+        let rank = match rank_char {
+            'A' => dealer_core::Rank::Ace,
+            'K' => dealer_core::Rank::King,
+            'Q' => dealer_core::Rank::Queen,
+            'J' => dealer_core::Rank::Jack,
+            'T' => dealer_core::Rank::Ten,
+            '9' => dealer_core::Rank::Nine,
+            '8' => dealer_core::Rank::Eight,
+            '7' => dealer_core::Rank::Seven,
+            '6' => dealer_core::Rank::Six,
+            '5' => dealer_core::Rank::Five,
+            '4' => dealer_core::Rank::Four,
+            '3' => dealer_core::Rank::Three,
+            '2' => dealer_core::Rank::Two,
+            _ => {
+                return Err(ParseError {
+                    message: format!("Invalid rank: {}", rank_char),
+                })
+            }
+        };
+        cards.push(dealer_core::Card::new(suit, rank));
+    }
+
+    Ok(cards)
 }
 
 /// Build AST from pest parse tree
@@ -668,7 +730,7 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                 }
             }
 
-            Ok(Expr::ShapePattern(ShapePattern { specs }))
+            Ok(Expr::ShapePattern(ShapePattern::new(specs)))
         }
 
         Rule::ident => {
@@ -731,7 +793,12 @@ fn parse_shape_spec(pair: Pair<Rule>) -> Result<Shape, ParseError> {
                 });
             }
         }
-        Ok(Shape::Wildcard(pattern))
+        if is_any {
+            // "any 6xxx" = any permutation of this wildcard pattern
+            Ok(Shape::AnyWildcard(pattern))
+        } else {
+            Ok(Shape::Wildcard(pattern))
+        }
     } else {
         // Exact or "any" distribution
         let mut pattern = [0u8; 4];

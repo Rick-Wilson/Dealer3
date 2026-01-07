@@ -111,7 +111,8 @@ impl Default for Deal {
 pub struct DealGenerator {
     rng: GnuRandom,
     zero52: [u8; 65536],            // Lookup table to avoid modulo operations
-    deck: [u8; 52],                 // Persistent deck that gets reshuffled each time
+    curdeal: [u8; 52],              // Current deal (slot-indexed, matches dealer.c)
+    fullpack: [Option<u8>; 52],     // Full pack with predealt cards marked as None
     stacked_pack: [Option<u8>; 52], // Predealt cards (matches dealer.c's stacked_pack)
 }
 
@@ -121,24 +122,30 @@ impl DealGenerator {
         let mut rng = GnuRandom::new();
         rng.srandom(seed);
 
-        // Initialize deck in suit-rank order (matches newpack in dealer.c)
+        // Initialize fullpack in suit-rank order (matches newpack in dealer.c)
         // Clubs 2-A, Diamonds 2-A, Hearts 2-A, Spades 2-A
-        let mut deck = [0u8; 52];
-        for (i, card) in deck.iter_mut().enumerate() {
-            *card = i as u8;
+        let mut fullpack = [None; 52];
+        for (i, card) in fullpack.iter_mut().enumerate() {
+            *card = Some(i as u8);
         }
 
         // Initialize stacked_pack to None (no predeal)
         let stacked_pack = [None; 52];
 
+        // curdeal starts empty, will be set up by setup_deal()
+        let curdeal = [0u8; 52];
+
         // Initialize zero52 table (will be rebuilt if predeal is used)
         let mut gen = DealGenerator {
             rng,
             zero52: [0u8; 65536],
-            deck,
+            curdeal,
+            fullpack,
             stacked_pack,
         };
         gen.rebuild_zero52();
+        // Set up the initial deal (matches dealer.c calling setup_deal once before loop)
+        gen.setup_deal();
         gen
     }
 
@@ -174,6 +181,28 @@ impl DealGenerator {
         }
     }
 
+    /// Set up the current deal from fullpack (matches setup_deal in dealer.c)
+    /// This is called once after predeal, before the shuffle loop
+    fn setup_deal(&mut self) {
+        let mut j = 0usize;
+
+        for i in 0..52 {
+            if let Some(card) = self.stacked_pack[i] {
+                // This slot has a predealt card
+                self.curdeal[i] = card;
+            } else {
+                // Find next available card from fullpack
+                while j < 52 && self.fullpack[j].is_none() {
+                    j += 1;
+                }
+                if j < 52 {
+                    self.curdeal[i] = self.fullpack[j].unwrap();
+                    j += 1;
+                }
+            }
+        }
+    }
+
     /// Predeal cards to a specific position
     /// This matches predeal() in dealer.c
     /// Returns an error if more than 13 cards are dealt to one position or if a card is dealt twice
@@ -183,12 +212,14 @@ impl DealGenerator {
         for &card in cards {
             let card_idx = card.to_index() as usize;
 
-            // Check if this card was already predealt
-            for slot in 0..52 {
-                if self.stacked_pack[slot] == Some(card_idx as u8) {
-                    return Err(format!("Card {:?} predealt twice", card));
-                }
+            // Find this card in fullpack and mark it as predealt
+            // dealer.c: if (fullpack[i] == onecard) { fullpack[i] = NO_CARD; ... }
+            if self.fullpack[card_idx].is_none() {
+                return Err(format!("Card {:?} predealt twice", card));
             }
+
+            // Mark card as removed from fullpack
+            self.fullpack[card_idx] = None;
 
             // Find first empty slot for this position
             let mut placed = false;
@@ -208,18 +239,19 @@ impl DealGenerator {
             }
         }
 
-        // Rebuild zero52 table after predeal
+        // Rebuild zero52 table and setup_deal after predeal
         self.rebuild_zero52();
+        self.setup_deal();
         Ok(())
     }
 
     /// Generate a random deal using Knuth's shuffle algorithm
     /// This exactly matches dealer.exe's shuffle implementation with predeal support
-    /// NOTE: Each call reshuffles the SAME deck (not a fresh sorted deck)
+    /// NOTE: Each call reshuffles the SAME curdeal (not a fresh sorted deck)
     pub fn generate(&mut self) -> Deal {
         // Knuth's shuffle algorithm (forward iteration, as in dealer.c)
-        // For each position i, swap with a random position j (0 <= j <= 51)
-        // IMPORTANT: We shuffle the existing deck, not a fresh sorted one!
+        // For each slot i, swap with a random slot j (0 <= j <= 51)
+        // IMPORTANT: We shuffle the existing curdeal, not a fresh sorted one!
         // When predeal is active, skip predealt slots (matches dealer.c lines 859-877)
         for i in 0..52 {
             // If this slot is predealt, skip it (don't swap)
@@ -239,35 +271,17 @@ impl DealGenerator {
                     // Retry if j == 0xFF or if j is a predealt slot
                 };
 
-                // Swap deck[i] with deck[j]
-                self.deck.swap(i, j);
+                // Swap curdeal[i] with curdeal[j]
+                self.curdeal.swap(i, j);
             }
         }
 
-        // Distribute cards to hands (matches setup_deal in dealer.c lines 706-720)
-        // First 13 to North, next 13 to East, next 13 to South, last 13 to West
-        // If stacked_pack[slot] has a card, use it; otherwise take next from shuffled deck
+        // Distribute cards to hands from curdeal
+        // curdeal is slot-indexed: slots 0-12=North, 13-25=East, 26-38=South, 39-51=West
         let mut deal = Deal::new();
-        let mut deck_idx = 0;
 
         for slot in 0..52 {
-            let card_index = if let Some(predealt_card) = self.stacked_pack[slot] {
-                // This slot has a predealt card - use it
-                predealt_card
-            } else {
-                // Find next card from deck that hasn't been predealt
-                loop {
-                    let candidate = self.deck[deck_idx];
-                    deck_idx += 1;
-
-                    // Check if this card is predealt somewhere
-                    if !self.stacked_pack.contains(&Some(candidate)) {
-                        break candidate;
-                    }
-                    // This card is predealt, skip it and continue
-                }
-            };
-
+            let card_index = self.curdeal[slot];
             let card = Card::from_index(card_index).unwrap();
             let position = Position::from_index((slot / 13) as u8).unwrap();
             deal.hand_mut(position).add_card(card);

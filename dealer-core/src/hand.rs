@@ -1,3 +1,4 @@
+use crate::shape::shape_to_index;
 use crate::{Card, Rank, Suit};
 
 /// Represents a single player's hand of 13 cards
@@ -74,6 +75,15 @@ impl Hand {
         let mut lengths = self.suit_lengths();
         lengths.sort_by(|a, b| b.cmp(a)); // Sort descending
         lengths
+    }
+
+    /// Get the shape index (0-559) for O(1) shape mask matching.
+    ///
+    /// This index uniquely identifies the hand's ordered shape (S-H-D-C).
+    #[inline]
+    pub fn shape_index(&self) -> usize {
+        let lengths = self.suit_lengths();
+        shape_to_index(lengths[0], lengths[1], lengths[2], lengths[3])
     }
 
     /// Get the shape as a sorted string (e.g., "5-4-3-1")

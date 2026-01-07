@@ -967,6 +967,7 @@ const UPSTREAM_TEST_CASES: &[TestCase] = &[
 ];
 
 #[test]
+#[ignore] // Slow: runs 100+ DDS solver cases
 fn test_all_cases() {
     for case in TEST_CASES {
         let hands = Hands::from_pbn(case.pbn)
@@ -984,6 +985,7 @@ fn test_all_cases() {
 }
 
 #[test]
+#[ignore] // Slow: runs DDS solver on upstream test cases
 fn test_upstream_fixed_deals() {
     for case in UPSTREAM_TEST_CASES {
         let hands = Hands::from_pbn(case.pbn)

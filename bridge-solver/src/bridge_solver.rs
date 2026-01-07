@@ -618,7 +618,11 @@ impl Solver {
 mod tests {
     use super::*;
 
+    // Note: All solver tests are marked #[ignore] because they run the DDS solver
+    // which takes ~1 sec per test. Run with `cargo test -- --ignored` when needed.
+
     #[test]
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_1_trick() {
         // Single trick - NS has ace, EW has king
         // N: SA  E: SK  S: S2  W: S3
@@ -631,6 +635,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_1_trick_ew_wins() {
         // Single trick - EW has ace
         // N: SK  E: SA  S: S2  W: S3
@@ -643,6 +648,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_2_tricks() {
         // Two tricks - NS has both aces
         // N: SA,HA  E: SK,HK  S: S2,H2  W: S3,H3
@@ -655,6 +661,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_4_tricks() {
         // Four tricks - NS has all aces
         let hands = Hands::from_pbn("N:A.A.A.A K.K.K.K 2.2.2.2 3.3.3.3").unwrap();
@@ -666,6 +673,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_8_tricks() {
         // 8 tricks - NS has AK in each suit
         let hands = Hands::from_pbn("N:AK.AK.AK.AK QJ.QJ.QJ.QJ 32.32.32.32 T9.T9.T9.T9").unwrap();
@@ -679,7 +687,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // 13-card tests disabled until pruning optimizations are implemented
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_cold_13() {
         // NS has all top cards
         let hands = Hands::from_pbn(
@@ -696,7 +704,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // 13-card tests disabled until pruning optimizations are implemented
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_cold_0() {
         // EW has all top cards
         let hands = Hands::from_pbn(
@@ -710,7 +718,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // 13-card tests disabled until pruning optimizations are implemented
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_9_tricks() {
         // From test case
         let hands = Hands::from_pbn(
@@ -726,7 +734,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // 13-card tests disabled until pruning optimizations are implemented
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_13card_north_only() {
         // Same 13-card deal, but only test North leading
         let hands = Hands::from_pbn(

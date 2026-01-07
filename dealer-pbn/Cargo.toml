@@ -6,5 +6,6 @@ license = "Unlicense"
 
 [dependencies]
 dealer-core = { path = "../dealer-core" }
+chrono = "0.4"
 
 [dev-dependencies]

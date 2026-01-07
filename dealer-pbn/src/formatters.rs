@@ -1,3 +1,4 @@
+use chrono::{Datelike, Local};
 use dealer_core::{Deal, Position, Rank, Suit};
 
 /// Print format for outputting deals
@@ -139,38 +140,36 @@ pub fn format_printpbn(
     vulnerability: Option<Vulnerability>,
     event_name: Option<&str>,
     seed: Option<u32>,
+    input_file: Option<&str>,
 ) -> String {
     let mut result = String::new();
 
-    // Event tag - title takes precedence over seed
+    // Event tag - title takes precedence over seed/file
+    // Format matches dealer.exe: "Hand simulated by dealer with file <path>, seed <n>"
     if let Some(title) = event_name {
         result.push_str(&format!("[Event \"{}\"]\n", title));
-    } else if let Some(seed_val) = seed {
-        result.push_str(&format!(
-            "[Event \"Hand simulated by dealer, seed {}\"]\n",
-            seed_val
-        ));
     } else {
-        result.push_str("[Event \"-\"]\n");
+        let mut event = String::from("Hand simulated by dealer");
+        if let Some(file) = input_file {
+            event.push_str(&format!(" with file {}", file));
+        }
+        if let Some(seed_val) = seed {
+            event.push_str(&format!(", seed {}", seed_val));
+        }
+        result.push_str(&format!("[Event \"{}\"]\n", event));
     }
 
     // Site and Date
     result.push_str("[Site \"-\"]\n");
 
     // Current date in PBN format (YYYY.MM.DD)
-    let now = std::time::SystemTime::now();
-    if let Ok(duration) = now.duration_since(std::time::UNIX_EPOCH) {
-        let secs = duration.as_secs();
-        // Approximate date calculation (not exact but good enough)
-        let days = secs / 86400;
-        let year = 1970 + (days / 365);
-        let day_of_year = days % 365;
-        let month = (day_of_year / 30) + 1;
-        let day = (day_of_year % 30) + 1;
-        result.push_str(&format!("[Date \"{:04}.{:02}.{:02}\"]\n", year, month, day));
-    } else {
-        result.push_str("[Date \"????.??.??\"]\n");
-    }
+    let now = Local::now();
+    result.push_str(&format!(
+        "[Date \"{:04}.{:02}.{:02}\"]\n",
+        now.year(),
+        now.month(),
+        now.day()
+    ));
 
     result.push_str(&format!("[Board \"{}\"]\n", board_number + 1));
 
@@ -397,7 +396,7 @@ mod tests {
     fn test_format_printpbn() {
         let mut gen = DealGenerator::new(1);
         let deal = gen.generate();
-        let output = format_printpbn(&deal, 0, None, None, None, Some(1));
+        let output = format_printpbn(&deal, 0, None, None, None, Some(1), None);
 
         // Should contain standard PBN tags
         assert!(output.contains("[Event "));
@@ -413,19 +412,19 @@ mod tests {
         let deal = gen.generate();
 
         // Board 0 -> North dealer
-        let output0 = format_printpbn(&deal, 0, None, None, None, None);
+        let output0 = format_printpbn(&deal, 0, None, None, None, None, None);
         assert!(output0.contains("[Dealer \"N\"]"));
 
         // Board 1 -> East dealer
-        let output1 = format_printpbn(&deal, 1, None, None, None, None);
+        let output1 = format_printpbn(&deal, 1, None, None, None, None, None);
         assert!(output1.contains("[Dealer \"E\"]"));
 
         // Board 2 -> South dealer
-        let output2 = format_printpbn(&deal, 2, None, None, None, None);
+        let output2 = format_printpbn(&deal, 2, None, None, None, None, None);
         assert!(output2.contains("[Dealer \"S\"]"));
 
         // Board 3 -> West dealer
-        let output3 = format_printpbn(&deal, 3, None, None, None, None);
+        let output3 = format_printpbn(&deal, 3, None, None, None, None, None);
         assert!(output3.contains("[Dealer \"W\"]"));
     }
 
@@ -435,19 +434,19 @@ mod tests {
         let deal = gen.generate();
 
         // Board 0 -> None
-        let output0 = format_printpbn(&deal, 0, None, None, None, None);
+        let output0 = format_printpbn(&deal, 0, None, None, None, None, None);
         assert!(output0.contains("[Vulnerable \"None\"]"));
 
         // Board 1 -> NS
-        let output1 = format_printpbn(&deal, 1, None, None, None, None);
+        let output1 = format_printpbn(&deal, 1, None, None, None, None, None);
         assert!(output1.contains("[Vulnerable \"NS\"]"));
 
         // Board 2 -> EW
-        let output2 = format_printpbn(&deal, 2, None, None, None, None);
+        let output2 = format_printpbn(&deal, 2, None, None, None, None, None);
         assert!(output2.contains("[Vulnerable \"EW\"]"));
 
         // Board 3 -> All
-        let output3 = format_printpbn(&deal, 3, None, None, None, None);
+        let output3 = format_printpbn(&deal, 3, None, None, None, None, None);
         assert!(output3.contains("[Vulnerable \"All\"]"));
     }
 
@@ -462,6 +461,7 @@ mod tests {
             Some(Position::South),
             Some(Vulnerability::All),
             Some("Test Event"),
+            None,
             None,
         );
 

@@ -167,6 +167,53 @@ pub enum Expr {
 pub struct ShapePattern {
     /// List of shape specifications combined with + and -
     pub specs: Vec<ShapeSpec>,
+    /// Precomputed bitmask for O(1) shape matching (computed lazily or at parse time)
+    mask: Option<dealer_core::ShapeMask>,
+}
+
+impl ShapePattern {
+    /// Create a new ShapePattern from specs.
+    pub fn new(specs: Vec<ShapeSpec>) -> Self {
+        let mut pattern = ShapePattern { specs, mask: None };
+        pattern.compute_mask();
+        pattern
+    }
+
+    /// Compute and cache the shape mask.
+    fn compute_mask(&mut self) {
+        use dealer_core::ShapeMask;
+
+        let mut result = ShapeMask::empty();
+
+        for spec in &self.specs {
+            let spec_mask = match &spec.shape {
+                Shape::Exact(p) => ShapeMask::exact(p[0], p[1], p[2], p[3]),
+                Shape::Wildcard(p) => ShapeMask::wildcard(*p),
+                Shape::AnyDistribution(p) => ShapeMask::any_distribution(*p),
+                Shape::AnyWildcard(p) => ShapeMask::any_wildcard(*p),
+            };
+
+            if spec.include {
+                result = result.union(&spec_mask);
+            } else {
+                result = result.difference(&spec_mask);
+            }
+        }
+
+        self.mask = Some(result);
+    }
+
+    /// Get the precomputed shape mask.
+    #[inline]
+    pub fn mask(&self) -> &dealer_core::ShapeMask {
+        self.mask.as_ref().expect("ShapeMask not computed")
+    }
+
+    /// Check if a hand with the given shape index matches this pattern.
+    #[inline]
+    pub fn matches_index(&self, shape_index: usize) -> bool {
+        self.mask().contains(shape_index)
+    }
 }
 
 /// A single shape specification (possibly with operators)
@@ -187,6 +234,8 @@ pub enum Shape {
     Wildcard([Option<u8>; 4]),
     /// Any distribution: "any 4333" means any hand with 4-3-3-3 distribution regardless of suit order
     AnyDistribution([u8; 4]),
+    /// Any wildcard: "any 6xxx" means any distribution with 6 in some suit (any permutation of wildcard)
+    AnyWildcard([Option<u8>; 4]),
 }
 
 /// Binary operators

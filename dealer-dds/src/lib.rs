@@ -663,7 +663,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // 13-card tests disabled until pruning optimizations are implemented
+    #[ignore] // Slow: runs DDS solver 20 times
     fn test_solver_creation() {
         let deal = create_simple_deal();
         let solver = DoubleDummySolver::new(deal);
@@ -672,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // 13-card tests disabled until pruning optimizations are implemented
+    #[ignore] // Slow: runs DDS solver
     fn test_solver_basic() {
         // Test with a simple deal (one suit per hand)
         let deal = create_simple_deal();

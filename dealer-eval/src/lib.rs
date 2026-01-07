@@ -1,6 +1,6 @@
 use dealer_core::{Card, Deal, Position, Suit};
 use dealer_dds::{Denomination, DoubleDummySolver};
-use dealer_parser::{BinaryOp, Expr, Function, Program, Shape, ShapePattern, Statement, UnaryOp};
+use dealer_parser::{BinaryOp, Expr, Function, Program, ShapePattern, Statement, UnaryOp};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -304,25 +304,30 @@ impl std::error::Error for EvalError {}
 /// Evaluation context - holds the deal being evaluated and variable bindings
 pub struct EvalContext<'a> {
     pub deal: &'a Deal,
-    /// Variable name -> Expression tree mapping
-    /// Variables store expression trees, not values
-    pub variables: HashMap<String, Expr>,
+    /// Variable name -> Expression tree reference mapping
+    /// Variables store references to expression trees (no cloning needed)
+    pub variables: &'a HashMap<String, &'a Expr>,
     /// Cache of evaluated variable values (per-deal)
     /// Using RefCell for interior mutability since eval takes &self
     cache: RefCell<HashMap<String, i32>>,
 }
 
+/// Empty variables map for contexts without variables
+static EMPTY_VARIABLES: std::sync::LazyLock<HashMap<String, &'static Expr>> =
+    std::sync::LazyLock::new(HashMap::new);
+
 impl<'a> EvalContext<'a> {
+    /// Create a context without any variables (for simple expressions)
     pub fn new(deal: &'a Deal) -> Self {
         EvalContext {
             deal,
-            variables: HashMap::new(),
+            variables: &EMPTY_VARIABLES,
             cache: RefCell::new(HashMap::new()),
         }
     }
 
-    /// Create a context with pre-defined variables
-    pub fn with_variables(deal: &'a Deal, variables: HashMap<String, Expr>) -> Self {
+    /// Create a context with pre-defined variable references
+    pub fn with_variables(deal: &'a Deal, variables: &'a HashMap<String, &'a Expr>) -> Self {
         EvalContext {
             deal,
             variables,
@@ -331,7 +336,53 @@ impl<'a> EvalContext<'a> {
     }
 }
 
+/// Extract variable references from a program (call once before the eval loop)
+/// Returns a HashMap mapping variable names to references to their expression trees
+pub fn extract_variables(program: &Program) -> HashMap<String, &Expr> {
+    let mut variables = HashMap::new();
+    for statement in &program.statements {
+        if let Statement::Assignment { name, expr } = statement {
+            variables.insert(name.clone(), expr);
+        }
+    }
+    variables
+}
+
+/// Extract the final constraint expression from a program (call once before the eval loop)
+pub fn extract_constraint(program: &Program) -> Option<&Expr> {
+    let mut final_expr = None;
+    for statement in &program.statements {
+        match statement {
+            Statement::Expression(expr) => {
+                final_expr = Some(expr);
+            }
+            Statement::Condition(expr) => {
+                final_expr = Some(expr);
+            }
+            _ => {}
+        }
+    }
+    final_expr
+}
+
+/// Evaluate a constraint expression with pre-extracted variables against a deal
+///
+/// This is the optimized hot-path function. Call extract_variables() and
+/// extract_constraint() once before the loop, then call this for each deal.
+pub fn eval_with_context(
+    constraint: &Expr,
+    variables: &HashMap<String, &Expr>,
+    deal: &Deal,
+) -> Result<i32, EvalError> {
+    let ctx = EvalContext::with_variables(deal, variables);
+    eval(constraint, &ctx)
+}
+
 /// Evaluate a program (assignments + final expression) against a deal
+///
+/// NOTE: This function is convenient but not optimal for hot loops because it
+/// extracts variables on every call. For performance-critical code, use
+/// extract_variables(), extract_constraint(), and eval_with_context() instead.
 ///
 /// Processes statements in order:
 /// - Assignments populate the variables HashMap
@@ -341,43 +392,13 @@ impl<'a> EvalContext<'a> {
 /// Earlier expressions are evaluated for side effects but don't affect matching.
 /// This matches dealer.exe behavior where earlier bare expressions appear to be ignored.
 pub fn eval_program(program: &Program, deal: &Deal) -> Result<i32, EvalError> {
-    let mut variables = HashMap::new();
+    let variables = extract_variables(program);
 
-    let mut final_expr = None;
-
-    for statement in &program.statements {
-        match statement {
-            Statement::Assignment { name, expr } => {
-                // Store the expression tree, not the evaluated value
-                // This allows variables to reference other variables
-                variables.insert(name.clone(), expr.clone());
-            }
-            Statement::Expression(expr) => {
-                // Last expression is the constraint to evaluate
-                final_expr = Some(expr);
-            }
-            Statement::Condition(expr) => {
-                // Condition statement is the constraint to evaluate
-                final_expr = Some(expr);
-            }
-            Statement::Produce(_)
-            | Statement::Action { .. }
-            | Statement::Dealer(_)
-            | Statement::Vulnerable(_)
-            | Statement::Predeal { .. }
-            | Statement::CsvReport(_) => {
-                // These are handled by the CLI, not the evaluator
-                // Just skip them here
-            }
-        }
-    }
-
-    let constraint = final_expr.ok_or_else(|| {
+    let constraint = extract_constraint(program).ok_or_else(|| {
         EvalError::InvalidArgument("Program must end with a constraint expression".to_string())
     })?;
 
-    let ctx = EvalContext::with_variables(deal, variables);
-    eval(constraint, &ctx)
+    eval_with_context(constraint, &variables, deal)
 }
 
 /// Evaluate an expression against a deal
@@ -404,12 +425,54 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
         }
 
         Expr::Position(pos) => {
-            // Position as a value - not very useful on its own, but valid
-            // We'll return the position index (0-3)
+            // Check if this position name is actually a variable override
+            // dealer.exe allows variables named n, s, e, w to shadow position keywords
+            let pos_name = match pos {
+                Position::North => "n",
+                Position::South => "s",
+                Position::East => "e",
+                Position::West => "w",
+            };
+
+            // Check cache first for the single-letter variable
+            if let Some(&cached_value) = ctx.cache.borrow().get(pos_name) {
+                return Ok(cached_value);
+            }
+
+            // Check if variable is defined - if so, use it instead of position
+            if let Some(var_expr) = ctx.variables.get(pos_name) {
+                let value = eval(var_expr, ctx)?;
+                ctx.cache.borrow_mut().insert(pos_name.to_string(), value);
+                return Ok(value);
+            }
+
+            // No variable override - return position index (0-3)
             Ok(*pos as i32)
         }
 
         Expr::BinaryOp { op, left, right } => {
+            // Short-circuit evaluation for logical operators
+            match op {
+                BinaryOp::And => {
+                    let left_val = eval(left, ctx)?;
+                    if left_val == 0 {
+                        return Ok(0); // Short-circuit: false && _ = false
+                    }
+                    let right_val = eval(right, ctx)?;
+                    return Ok(if right_val != 0 { 1 } else { 0 });
+                }
+                BinaryOp::Or => {
+                    let left_val = eval(left, ctx)?;
+                    if left_val != 0 {
+                        return Ok(1); // Short-circuit: true || _ = true
+                    }
+                    let right_val = eval(right, ctx)?;
+                    return Ok(if right_val != 0 { 1 } else { 0 });
+                }
+                _ => {}
+            }
+
+            // Non-short-circuit operators: evaluate both sides
             let left_val = eval(left, ctx)?;
             let right_val = eval(right, ctx)?;
 
@@ -441,17 +504,8 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
                 BinaryOp::Gt => Ok(if left_val > right_val { 1 } else { 0 }),
                 BinaryOp::Ge => Ok(if left_val >= right_val { 1 } else { 0 }),
 
-                // Logical (treat 0 as false, non-zero as true)
-                BinaryOp::And => Ok(if left_val != 0 && right_val != 0 {
-                    1
-                } else {
-                    0
-                }),
-                BinaryOp::Or => Ok(if left_val != 0 || right_val != 0 {
-                    1
-                } else {
-                    0
-                }),
+                // Already handled above with short-circuit
+                BinaryOp::And | BinaryOp::Or => unreachable!(),
             }
         }
 
@@ -520,11 +574,7 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             if args.len() == 2 {
                 // HCP in a specific suit
                 let suit = eval_suit_arg(&args[1])?;
-                let hcp: u8 = hand
-                    .cards_in_suit(suit)
-                    .iter()
-                    .map(|c| c.hcp())
-                    .sum();
+                let hcp: u8 = hand.cards_in_suit(suit).iter().map(|c| c.hcp()).sum();
                 Ok(hcp as i32)
             } else {
                 Ok(hand.hcp() as i32)
@@ -1093,28 +1143,12 @@ fn eval_card_arg(arg: &Expr) -> Result<Card, EvalError> {
     }
 }
 
-/// Evaluate a shape pattern against a hand
+/// Evaluate a shape pattern against a hand using precomputed bitmask.
+///
+/// This is O(1) - just a single bit lookup after computing the hand's shape index.
+#[inline]
 fn eval_shape_pattern(hand: &dealer_core::Hand, pattern: &ShapePattern) -> Result<bool, EvalError> {
-    let mut result = false;
-
-    for spec in &pattern.specs {
-        let matches = match &spec.shape {
-            Shape::Exact(p) => hand.matches_exact_shape(p),
-            Shape::Wildcard(p) => hand.matches_wildcard_shape(p),
-            Shape::AnyDistribution(p) => hand.matches_distribution(p),
-        };
-
-        if spec.include {
-            result = result || matches;
-        } else {
-            // Exclusion: if it matches, we fail
-            if matches {
-                return Ok(false);
-            }
-        }
-    }
-
-    Ok(result)
+    Ok(pattern.matches_index(hand.shape_index()))
 }
 
 #[cfg(test)]
@@ -2469,7 +2503,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // 13-card tests disabled until pruning optimizations are implemented
+    #[ignore] // Slow: requires DDS solver (~1 sec per call)
     fn test_eval_tricks() {
         use dealer_parser::parse;
 
@@ -2508,7 +2542,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // 13-card tests disabled until pruning optimizations are implemented
+    #[ignore] // Slow: requires DDS solver (~1 sec per call)
     fn test_tricks_with_score() {
         use dealer_parser::parse;
 

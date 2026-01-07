@@ -38,7 +38,7 @@ produce_stmt = { ^"produce" ~ literal }
 action_stmt = { ^"action" ~ action_component ~ ("," ~ action_component)* }
 dealer_stmt = { ^"dealer" ~ compass }
 vulnerable_stmt = { ^"vulnerable" ~ vulnerability }
-predeal_stmt = { ^"predeal" ~ compass ~ card ~ ("," ~ card)* }
+predeal_stmt = { ^"predeal" ~ compass ~ predeal_card ~ ("," ~ predeal_card)* }
 csvrpt_stmt = { ^"csvrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
 
 // CSV terms for csvrpt
@@ -168,9 +168,15 @@ literal = @{ "-"? ~ ASCII_DIGIT+ }
 // String literals (for average labels)
 string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 
-// Card names: AS, KH, 2C, etc. (rank + suit)
+// Card names for hascard function: AS, KH, 2C (rank + suit)
 card = @{
     rank ~ suit_char
+}
+
+// Card names for predeal: SA, HKQ, DT62, C95 (suit + one or more ranks)
+// dealer.exe predeal uses suit-first format: SA = Ace of Spades, ST62 = Spades T-6-2
+predeal_card = @{
+    suit_char ~ rank+
 }
 
 rank = { "A" | "K" | "Q" | "J" | "T" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" }
