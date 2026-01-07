@@ -1,291 +1,257 @@
 # Multithreading Design for dealer3
 
 **Date**: 2026-01-07
-**Status**: Design Document
+**Status**: Implemented
 
 ## Overview
 
-This document describes a parallel execution design for dealer3 that provides speedup while maintaining deterministic output order compatible with single-threaded dealer.exe.
+dealer3 implements two parallel execution modes:
 
-## Goals
+1. **Fast Mode** (default) - Uses xoshiro256++ RNG with stateless deal generation for maximum parallelism
+2. **Legacy Mode** (`--legacy`) - Single-threaded, dealer.exe-compatible using GNU random
 
-1. **Deterministic output** - Same seed must produce same output, regardless of thread count
-2. **Parallel speedup** - Utilize all available CPU cores
-3. **RNG compatibility** - Random number sequence matches single-threaded execution
-4. **Minimal overhead** - Batch processing to amortize synchronization costs
+## Performance Results
+
+### Benchmark: `debug_double_advancer.dlr` with `-g 20000000 -p 10`
+
+| Implementation | Time | CPU % | Speedup |
+|----------------|------|-------|---------|
+| C dealer.exe | 16.1s | 99% | 1.0x (baseline) |
+| Rust dealer3 legacy | 14.0s | 99% | 1.15x |
+| Rust dealer3 fast (12 threads) | 3.1s | 866% | **5.2x** |
+
+### Benchmark: `hcp(north) >= 15` with `-p 500000`
+
+| Threads | Time | CPU % | Speedup |
+|---------|------|-------|---------|
+| 1 | 2.92s | 103% | 1.0x |
+| 2 | 1.75s | 184% | 1.7x |
+| 4 | 1.10s | 318% | 2.7x |
+| 8 | 0.84s | 544% | 3.5x |
+| 12 | 0.74s | 770% | 3.9x |
+
+### Key Findings
+
+- **Core generation is well parallelized** - 770-866% CPU utilization with 12 threads
+- **Rust is 1.15x faster than C** even in single-threaded legacy mode
+- **Fast mode achieves 5x+ speedup** over C dealer.exe
+- **Output serialization is a bottleneck** - writing output reduces parallelism significantly
+- **Filter evaluation is significant** - complex filters add overhead per deal
 
 ## Architecture
 
-### Components
+### Fast Mode (Default)
+
+Fast mode uses stateless deal generation where each deal depends only on its seed, enabling embarrassingly parallel execution.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        Supervisor                           │
-│  - Owns the single RNG (gnurandom)                         │
-│  - Dispatches work in batches of N                         │
-│  - Collects and orders results                             │
-│  - Outputs passing deals in serial order                   │
+│                    FastSupervisor                           │
+│  - Generates seed sequence (trivially fast)                 │
+│  - Dispatches seeds to workers in batches                   │
+│  - Collects and orders results by serial number             │
 └─────────────────────────────────────────────────────────────┘
                               │
-                              │ dispatches (serial_num, rng_state)
+                              │ dispatches (serial_num, seed) - 16 bytes
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                       Worker Pool                           │
+│                       Worker Pool (rayon)                   │
 │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐       │
 │  │ Worker  │  │ Worker  │  │ Worker  │  │ Worker  │  ...  │
 │  │   0     │  │   1     │  │   2     │  │   3     │       │
+│  │         │  │         │  │         │  │         │       │
+│  │ seed -> │  │ seed -> │  │ seed -> │  │ seed -> │       │
+│  │  deal   │  │  deal   │  │  deal   │  │  deal   │       │
 │  └─────────┘  └─────────┘  └─────────┘  └─────────┘       │
 └─────────────────────────────────────────────────────────────┘
                               │
-                              │ returns (serial_num, Pass(deal) | Fail)
+                              │ returns (serial_num, deal, passed)
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     Result Collector                        │
-│  - Receives results (potentially out of order)             │
-│  - Sorts by serial number                                  │
-│  - Streams to output in order                              │
+│                     Result Processing                       │
+│  - Results sorted by serial number                          │
+│  - Matching deals output in order                           │
+│  - Statistics accumulated                                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Supervisor Responsibilities
+#### Key Design Decisions
 
-1. **RNG Management**: Maintains the single `gnurandom` instance
-2. **Work Distribution**: For each work unit, captures current RNG state, advances RNG by the amount needed for one shuffle (52 random numbers), assigns serial number
-3. **Batch Coordination**: Dispatches N work units, waits for completion
-4. **Output Ordering**: Ensures results are output in serial number order
-5. **Termination**: Tracks produced/generated counts, signals workers to stop
+1. **Stateless Generation**: Each deal is generated from just a seed using:
+   - xoshiro256++ RNG (fast, high-quality, 256-bit state)
+   - SplitMix64 for seed expansion
+   - Fisher-Yates shuffle (same algorithm as dealer.exe)
 
-### Worker Responsibilities
+2. **Minimal Work Units**: Only 16 bytes per work unit (serial number + seed)
+   - Compare to legacy: ~300 bytes (RNG state + shuffle state)
 
-1. **Receive**: `(serial_number, rng_state)` tuple
-2. **Shuffle**: Initialize local RNG from state, shuffle deck (parallel work)
-3. **Evaluate**: Apply filter condition to generated deal
-4. **Return**: `(serial_number, Result)` where Result is `Pass(Deal)` or `Fail`
+3. **No Shared State**: Workers are fully independent - no locks, no contention
 
-### Work Unit Structure
+4. **Deterministic Output**: Same seed always produces same sequence of deals
+
+### Legacy Mode (`--legacy`)
+
+Legacy mode preserves exact dealer.exe compatibility by using:
+- GNU random() with 64-bit state (matching dealer.exe binary behavior)
+- Sequential shuffle-state-dependent generation
+- Single-threaded execution only
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DealGenerator                            │
+│  - Owns single GnuRandom instance                           │
+│  - Each deal depends on previous shuffle state              │
+│  - Must be sequential for determinism                       │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              │ generates deals one at a time
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     Sequential Output                       │
+│  - Exact match with dealer.exe for same seed                │
+│  - Byte-for-byte compatible output                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Implementation Details
+
+### RNG: xoshiro256++
+
+Fast mode uses xoshiro256++ (Vigna & Blackman), chosen for:
+- **Speed**: One of the fastest high-quality PRNGs
+- **Quality**: Passes BigCrush and PractRand statistical tests
+- **Period**: 2^256 - 1 (effectively infinite)
+- **Stateless seeding**: SplitMix64 expands any u64 seed to full state
 
 ```rust
-struct WorkUnit {
-    serial_number: u64,
-    rng_state: GnuRandomState,  // Captured RNG state for this deal
-}
-
-enum WorkResult {
-    Pass(Deal),
-    Fail,
-}
-
-struct CompletedWork {
-    serial_number: u64,
-    result: WorkResult,
-}
-```
-
-## Batch Processing
-
-### Batch Size (N)
-
-- **Default**: `N = 100 × num_cores` (e.g., 800 on 8-core machine)
-- **Configurable**: `--batch-size N` or `--batch-size auto`
-- **Rationale**: Large batches amortize synchronization overhead; 100× multiplier ensures workers stay busy even with variable evaluation times
-
-### Batch Execution Flow
-
-```
-for each batch:
-    1. Supervisor captures N RNG states (advancing RNG each time)
-    2. Supervisor dispatches N work units to pool
-    3. Workers process in parallel (shuffle + evaluate)
-    4. Supervisor collects all N results
-    5. Supervisor sorts results by serial_number
-    6. Supervisor outputs passing deals in order
-    7. Update counters (generated += N, produced += passes)
-    8. Check termination condition
-```
-
-## Early Termination (`-p` mode)
-
-In produce mode (`-p N`), we need exactly N matching deals. The design handles this efficiently:
-
-### Strategy: Sequential Result Processing
-
-Instead of waiting for all N workers, the supervisor processes results **in serial order**:
-
-```
-produced = 0
-target = args.produce
-
-for serial_num in 0.. {
-    wait for result with this serial_num
-    generated += 1
-
-    if result is Pass(deal):
-        output(deal)
-        produced += 1
-        if produced >= target:
-            cancel remaining workers
-            break
+// Seed expansion using SplitMix64
+pub fn seed_from_u64(seed: u64) -> Self {
+    let mut z = seed;
+    let mut state = [0u64; 4];
+    for s in &mut state {
+        z = z.wrapping_add(0x9e3779b97f4a7c15);
+        let mut x = z;
+        x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
+        *s = x ^ (x >> 31);
+    }
+    Self { s: state }
 }
 ```
 
-### Implications
+### Unbiased Index Generation
 
-- Results from later serial numbers that complete early are buffered
-- Once we have enough passes, remaining in-flight work is cancelled/ignored
-- A worker with serial_num=50 might find a pass before serial_num=10, but we wait for 10 first
-- This preserves deterministic output: we always output the **first N passing deals** in RNG sequence order
-
-### Optimization: Speculative Cancellation
-
-When `produced` is close to `target`, we can avoid dispatching new batches:
+Uses Lemire's nearly divisionless method to avoid modulo bias:
 
 ```rust
-// Don't start new batch if we likely have enough in-flight
-let expected_passes = in_flight_count * historical_pass_rate;
-if produced + expected_passes >= target * 1.5 {
-    // Wait for current batch instead of dispatching more
+pub fn next_index(&mut self, n: u32) -> u32 {
+    // Fast path for powers of 2
+    if n.is_power_of_two() {
+        return self.next_u32() & (n - 1);
+    }
+
+    // Lemire's method - avoids division in common case
+    let mut x = self.next_u32();
+    let mut m = (x as u64) * (n as u64);
+    let mut l = m as u32;
+
+    if l < n {
+        let t = n.wrapping_neg() % n;
+        while l < t {
+            x = self.next_u32();
+            m = (x as u64) * (n as u64);
+            l = m as u32;
+        }
+    }
+
+    (m >> 32) as u32
 }
 ```
 
-## RNG State Capture
-
-The supervisor must capture enough RNG state for workers to reproduce the exact shuffle:
-
-### Option A: Full State Clone (Recommended)
+### Stateless Deal Generation
 
 ```rust
-// Supervisor side
-for i in 0..batch_size {
-    let state = rng.clone_state();  // Capture full 31-word state
-    work_units.push(WorkUnit { serial_number: next_serial++, rng_state: state });
-    rng.advance(52);  // Skip the 52 random numbers this shuffle will use
-}
+pub fn generate_deal_from_seed_no_predeal(seed: u64) -> Deal {
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
 
-// Worker side
-fn process(unit: WorkUnit) -> CompletedWork {
-    let mut local_rng = GnuRandom::from_state(unit.rng_state);
-    let deal = shuffle_deck(&mut local_rng);
-    let result = evaluate(deal);
-    CompletedWork { serial_number: unit.serial_number, result }
+    // Fisher-Yates shuffle
+    let mut deck: [u8; 52] = std::array::from_fn(|i| i as u8);
+    for i in (1..52).rev() {
+        let j = rng.next_index((i + 1) as u32) as usize;
+        deck.swap(i, j);
+    }
+
+    // Distribute to hands
+    Deal::from_deck(&deck)
 }
 ```
 
-### Option B: Seed + Skip Count
+### Predeal Support
 
-```rust
-// Track how many random numbers have been consumed
-// Worker reconstructs by: init(seed), skip(count), then shuffle
-// More complex, not recommended
-```
+Predeal uses a two-phase approach:
+1. Place predealt cards in their designated positions
+2. Fisher-Yates shuffle only the remaining cards into remaining slots
 
-## Implementation Plan
+This maintains full parallelism while supporting predeal constraints.
 
-### Phase 1: Core Infrastructure
-
-1. Add `GnuRandom::clone_state()` and `GnuRandom::from_state()` methods
-2. Create `WorkUnit`, `WorkResult`, `CompletedWork` types
-3. Implement basic supervisor/worker split (single-threaded first)
-
-### Phase 2: Parallel Execution
-
-1. Add rayon dependency for thread pool
-2. Implement parallel batch dispatch
-3. Add result collection and ordering
-
-### Phase 3: CLI Integration
-
-1. Add `--threads N` flag (0 = auto-detect cores)
-2. Add `--batch-size N` flag (default: auto)
-3. Backward compatibility: `--threads 1` matches current behavior exactly
-
-### Phase 4: Optimization
-
-1. Profile and tune batch sizes
-2. Optimize RNG state cloning (it's 31 × 8 = 248 bytes)
-3. Consider lock-free result collection
-
-## Configuration
-
-### Command-Line Flags
+## Command-Line Interface
 
 ```
--R N, --threads N     Number of worker threads (default: 0 = auto)
-                      Use -R 1 for single-threaded (dealer.exe compatible output)
+-R N, --threads N     Number of worker threads (default: 0 = auto-detect)
+                      Only affects fast mode; legacy mode is always single-threaded
 
---batch-size N        Work units per batch (default: auto = 100 × threads)
+--legacy              Use legacy single-threaded mode (dealer.exe compatible)
+                      Required for exact deal sequence matching with dealer.exe
+
+--batch-size N        Work units per batch (default: auto = 200 × threads)
 ```
 
-### Auto-Detection
+## Validation
 
-```rust
-let num_threads = if args.threads == 0 {
-    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
-} else {
-    args.threads
-};
+The `deal-validator` tool validates that fast mode produces correct deals:
 
-let batch_size = if args.batch_size == 0 {
-    100 * num_threads
-} else {
-    args.batch_size
-};
+```bash
+# Validate deals against filter
+./dealer -p 1000 -s 42 -f oneline filter.dlr | ./deal-validator filter.dlr
+
+# Output:
+# === Validation Summary ===
+# Filter file: filter.dlr
+# Total deals: 1000
+# Passed:      1000 (100.0%)
+# Failed:      0 (0.0%)
+# ✅ VALIDATION PASSED: All 1000 deals match filter
 ```
 
-## Compatibility Notes
+## Trade-offs
 
-### Single-Threaded Mode (`-R 1`)
+### Fast Mode
+- **Pros**: 5x+ speedup, scales with cores, fully parallel
+- **Cons**: Different deal sequences than dealer.exe (same statistical properties)
 
-When running with one thread, output must be **identical** to current implementation:
-- Same deals in same order
-- Same statistics output
-- Byte-for-byte compatible with dealer.exe (for same seed)
+### Legacy Mode
+- **Pros**: Exact dealer.exe compatibility, byte-for-byte identical output
+- **Cons**: Single-threaded only, no parallelism possible due to shuffle-state dependency
 
-### Multi-Threaded Mode (`-R N`, N > 1)
+## Future Optimizations
 
-- Same deals as single-threaded (deterministic)
-- Same order as single-threaded (sorted by serial number)
-- May differ from dealer.exe in timing statistics
+Potential improvements identified through profiling:
 
-## Performance Expectations
+1. **Async output buffering** - Use separate output thread to avoid blocking workers
+2. **Batch result streaming** - Output results as batches complete rather than waiting
+3. **SIMD filter evaluation** - Vectorize simple HCP/shape checks
+4. **Profile-guided optimization (PGO)** - Could gain 10-20% additional performance
 
-### Theoretical Speedup
+## Files
 
-For CPU-bound filter evaluation:
-- Linear speedup up to core count (e.g., 8× on 8 cores)
-- Diminishing returns beyond physical cores (hyperthreading adds ~20%)
-
-### Realistic Targets
-
-| Threads | Expected Speedup | Notes |
-|---------|------------------|-------|
-| 1       | 1.0× (baseline)  | Matches current implementation |
-| 4       | 3.5-3.8×         | Good scaling |
-| 8       | 6-7×             | Some overhead |
-| 16      | 8-10×            | Hyperthreading diminishing returns |
-
-### Overhead Sources
-
-1. RNG state cloning (~248 bytes per work unit)
-2. Result collection synchronization
-3. Output ordering/buffering
-4. Thread pool management
-
-## Open Questions
-
-1. **Memory pressure**: With large batch sizes, how much memory for buffered results?
-   - Each Deal is ~208 bytes (52 cards × 4 bytes)
-   - Batch of 800 = ~166 KB buffered deals (acceptable)
-
-2. **Progress reporting**: How to show `-m` progress meter with parallel execution?
-   - Option: Report after each batch completes
-   - Option: Atomic counter updated by workers
-
-3. **Statistics**: How to aggregate average/frequency stats across workers?
-   - Each worker accumulates local stats
-   - Supervisor merges after batch completion
+- `gnurandom/src/lib.rs` - Xoshiro256PlusPlus implementation
+- `dealer-core/src/fast_deal.rs` - Stateless deal generation
+- `dealer/src/fast_parallel.rs` - FastSupervisor for parallel dispatch
+- `dealer/src/parallel.rs` - Legacy parallel module (reference only)
+- `dealer/src/main.rs` - CLI integration with `--legacy` flag
 
 ## References
 
-- [docs/implementation_roadmap.md](implementation_roadmap.md) - Section 4.1 Multi-threading
-- [docs/PERFORMANCE_OPTIMIZATION_ANALYSIS.md](PERFORMANCE_OPTIMIZATION_ANALYSIS.md) - Performance analysis
-- DealerV2_4 uses `-R N` for threading (1-9 threads)
+- [xoshiro / xoroshiro generators](https://prng.di.unimi.it/) - Vigna & Blackman
+- [Lemire's nearly divisionless method](https://lemire.me/blog/2019/06/06/nearly-divisionless-random-integer-generation-on-various-systems/)
+- [Fisher-Yates shuffle](https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle)
