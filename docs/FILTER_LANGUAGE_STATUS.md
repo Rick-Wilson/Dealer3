@@ -20,7 +20,7 @@ This document tracks the implementation status of the dealer constraint language
 - Hand quality evaluation (quality, cccc)
 - Variables (full support for assignments and references)
 - **Produce mode (`-p N`)** - stop after producing N matching deals (default: 40)
-- **Generate mode (`-g N`)** - generate N total deals, report all matches (default: 1,000,000)
+- **Generate mode (`-g N`)** - generate N total deals, report all matches (default: 10,000,000)
 - Seeded generation (`-s SEED`)
 - **Action keywords (`condition`, `produce`, `action`, `dealer`, `vulnerable`)**
 - **Print formats (printall, printew, printpbn, printcompact, printoneline)**
@@ -436,7 +436,7 @@ EOF
 | Argument | Description | Status |
 |----------|-------------|--------|
 | `-p N` / `--produce N` | Produce N matching deals (default: 40). Mutually exclusive with `-g` | ✅ Implemented |
-| `-g N` / `--generate N` | Generate N total deals, report all matches (default: 1,000,000). Mutually exclusive with `-p` | ✅ Implemented |
+| `-g N` / `--generate N` | Generate N total deals, report all matches (default: 10,000,000). Mutually exclusive with `-p` | ✅ Implemented |
 | `-s SEED` / `--seed SEED` | Set random seed for reproducible results | ✅ Implemented |
 | `-f FORMAT` / `--format FORMAT` | Output format (oneline, printall, printew, printpbn, printcompact) | ✅ Implemented |
 | `-d POS` / `--dealer POS` | Dealer position for PBN (N/E/S/W) | ✅ Implemented |
@@ -460,7 +460,7 @@ EOF
 - Generates exactly N **total** deals and reports all matches
 - Use when you want to test a rare condition or gather statistics
 - Example: `-g 100000` generates 100,000 deals and shows all that match
-- Default: 1,000,000 deals
+- Default: 10,000,000 deals
 
 **Examples:**
 ```bash

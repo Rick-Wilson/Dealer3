@@ -23,7 +23,7 @@ struct Args {
     #[arg(short = 'p', long = "produce")]
     produce: Option<usize>,
 
-    /// Maximum number of hands to generate (defaults to 1000000)
+    /// Maximum number of hands to generate (defaults to 10000000)
     /// Can be combined with --produce to limit both generated and produced counts
     #[arg(short = 'g', long = "generate")]
     generate: Option<usize>,
@@ -275,19 +275,50 @@ fn parse_predeal_cards(card_str: &str) -> Result<Vec<dealer_core::Card>, String>
 }
 
 /// Format a float using %g-style formatting (like C's printf %g)
-/// Removes trailing zeros and uses shortest representation
+/// Uses 6 significant digits (not 6 decimal places) and removes trailing zeros
 fn format_g(val: f64) -> String {
-    // %g uses %f or %e depending on the value, removing trailing zeros
-    // For our use case (averages), values are typically small, so we use %f style
-    if val == val.trunc() {
-        // Integer value - format without decimal
-        format!("{}", val as i64)
-    } else {
-        // Decimal value - format with minimal precision, strip trailing zeros
-        let s = format!("{:.6}", val);
-        let s = s.trim_end_matches('0');
-        let s = s.trim_end_matches('.');
+    // C's %g uses 6 significant digits by default, not 6 decimal places
+    // It removes trailing zeros and uses %e for very large/small numbers
+    if val == 0.0 {
+        return "0".to_string();
+    }
+
+    // Check if it's effectively an integer
+    if val == val.trunc() && val.abs() < 1e15 {
+        return format!("{}", val as i64);
+    }
+
+    // Use 6 significant digits like C's %g
+    // The {:.*} syntax allows runtime precision, but we need significant digits
+    // Calculate how many decimal places give us 6 significant digits
+    let abs_val = val.abs();
+    let log10 = abs_val.log10().floor() as i32;
+    let decimal_places = (5 - log10).max(0) as usize;
+
+    if decimal_places > 0 && (-4..6).contains(&log10) {
+        // Use fixed point notation
+        let s = format!("{:.prec$}", val, prec = decimal_places);
+        // Trim trailing zeros and decimal point
+        let s = s.trim_end_matches('0').trim_end_matches('.');
         s.to_string()
+    } else if (0..6).contains(&log10) {
+        // Integer-like, already handled above for exact integers
+        // For non-exact, format with appropriate precision
+        let s = format!("{:.prec$}", val, prec = decimal_places);
+        let s = s.trim_end_matches('0').trim_end_matches('.');
+        s.to_string()
+    } else {
+        // Use scientific notation for very large/small numbers
+        // C's %g uses format like 1.23457e+06, Rust's {:e} uses 1.23457e6
+        let s = format!("{:.5e}", val);
+        // Ensure exponent has sign and at least 2 digits like C
+        if let Some(e_pos) = s.find('e') {
+            let (mantissa, exp) = s.split_at(e_pos);
+            let exp_num: i32 = exp[1..].parse().unwrap_or(0);
+            format!("{}e{:+03}", mantissa, exp_num)
+        } else {
+            s
+        }
     }
 }
 
@@ -555,8 +586,10 @@ fn main() {
     // Determine limits for generation
     // -g limits total hands generated, -p limits matching hands produced
     // When both are specified, stop when either limit is reached
-    // When neither is specified, default to producing 40 hands (dealer.exe default)
-    let max_generate = args.generate.unwrap_or(usize::MAX);
+    // dealer.exe defaults: -g 10000000 (10M), -p 40
+    // IMPORTANT: We must respect the generate limit to match dealer.exe behavior.
+    // Without this, dealer3 could run forever trying to produce rare hands.
+    let max_generate = args.generate.unwrap_or(10_000_000);
     let produce_count = args
         .produce
         .or(produce_count_from_input)

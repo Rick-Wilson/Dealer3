@@ -18,7 +18,7 @@ This document compares command-line switches across three implementations:
 | **Core Generation** |
 | `INPUT_FILE` | ✅ Positional arg | ✅ Same | ✅ Same | **IMPLEMENTED** | Input file as first argument |
 | `-p N` | Produce N hands (default 40) | ✅ Same | ✅ Same | **IMPLEMENTED** | Core feature |
-| `-g N` | Generate N hands (default 1M) | ✅ Same | ✅ Same | **IMPLEMENTED** | Can combine with `-p` |
+| `-g N` | Generate N hands (default 10M) | ✅ Same | ✅ Same | **IMPLEMENTED** | Can combine with `-p` |
 | `-s N` | Random seed | ✅ Same | ✅ Same | **IMPLEMENTED** | Core feature |
 | **Output Control** |
 | `-q` | Suppress deal output | ✅ Same | ✅ PBN Quiet mode | **IMPLEMENTED** | Only show stats |
@@ -222,7 +222,7 @@ Arguments:
 
 Core Options:
   -p, --produce <N>      Produce N matching hands (default: 40)
-  -g, --generate <N>     Generate up to N total hands (default: 1000000)
+  -g, --generate <N>     Generate up to N total hands (default: 10000000)
   -s, --seed <N>         Random seed (default: time-based)
 
 Output Options:

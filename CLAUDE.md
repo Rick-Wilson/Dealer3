@@ -46,7 +46,7 @@ dealer3/
 
 ### Command-Line Switches (14 total)
 - ✅ `-p N` / `--produce N` - Produce N matching deals (default: 40)
-- ✅ `-g N` / `--generate N` - Generate N total deals (default: 1M)
+- ✅ `-g N` / `--generate N` - Generate N total deals (default: 10M)
 - ✅ `-s SEED` / `--seed SEED` - Random seed
 - ✅ `-f FORMAT` / `--format FORMAT` - Output format (oneline, printall, printew, printpbn, printcompact)
 - ✅ `-d POS` / `--dealer POS` - Dealer position (N/E/S/W)

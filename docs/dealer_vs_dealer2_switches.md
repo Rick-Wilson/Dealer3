@@ -11,7 +11,7 @@ These switches work the same way in both dealer.exe and DealerV2_4:
 | Switch | Description | Notes |
 |--------|-------------|-------|
 | `-p N` | Produce N hands (default 40) | Core feature - produce mode |
-| `-g N` | Generate N hands (default 1M) | Core feature - generate mode |
+| `-g N` | Generate N hands (default 10M) | Core feature - generate mode |
 | `-s N` | Random seed | Deterministic generation |
 | `-h` | Help | Display usage information |
 | `-0` | No swapping (default) | Default behavior, each deal generated normally |
