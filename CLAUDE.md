@@ -212,7 +212,7 @@ compare-dealer -h
 **Manual SSH** (only if scripts don't work):
 ```bash
 # Map G: drive and run dealer (drive mapping required each session)
-ssh rick@10.211.55.5 'net use G: "\\Mac\Home\Development" >nul 2>&1 & dealer -p 10 -s 42 G:\GitHub\dealer3\test.dlr'
+ssh rick@10.211.55.5 'net use G: "\\Mac\Home\Development\GitHub" >nul 2>&1 & dealer -p 10 -s 42 G:\dealer3\test.dlr'
 
 # Simple inline expressions (no drive mapping needed)
 ssh rick@10.211.55.5 "echo 'hcp(north) >= 20' | dealer -p 10 -s 1"
@@ -220,8 +220,8 @@ ssh rick@10.211.55.5 "echo 'hcp(north) >= 20' | dealer -p 10 -s 1"
 
 **Notes**:
 - The Windows VM has `dealer` in PATH at `C:\Dealer\dealer.exe`
-- G: drive maps to `/Users/rick/Development` via Parallels shared folders
-- Files at `/Users/rick/Development/GitHub/dealer3/foo.dlr` become `G:\GitHub\dealer3\foo.dlr`
+- G: drive maps to `/Users/rick/Development/GitHub` via Parallels shared folders
+- Files at `/Users/rick/Development/GitHub/dealer3/foo.dlr` become `G:\dealer3\foo.dlr`
 - Shell aliases defined in `~/.zshrc`, scripts in `scripts/` directory
 
 ### DealerV2 (Hans van Staveren, expanded version)
