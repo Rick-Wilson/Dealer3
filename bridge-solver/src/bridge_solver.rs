@@ -7,6 +7,67 @@ use super::hands::Hands;
 use super::search;
 use super::types::*;
 
+/// A card played to the current trick, with the seat that played it
+#[derive(Clone, Copy, Debug)]
+pub struct PlayedCard {
+    /// The card played (0-51)
+    pub card: usize,
+    /// The seat that played the card
+    pub seat: Seat,
+}
+
+impl PlayedCard {
+    /// Create a new played card
+    pub fn new(card: usize, seat: Seat) -> Self {
+        PlayedCard { card, seat }
+    }
+}
+
+/// Represents a partially played trick (1-3 cards already played)
+#[derive(Clone, Debug, Default)]
+pub struct PartialTrick {
+    /// Cards played so far in this trick, in play order
+    pub plays: Vec<PlayedCard>,
+}
+
+impl PartialTrick {
+    /// Create a new partial trick with no cards played
+    pub fn new() -> Self {
+        PartialTrick { plays: Vec::new() }
+    }
+
+    /// Add a card to the partial trick
+    pub fn add(&mut self, card: usize, seat: Seat) -> &mut Self {
+        self.plays.push(PlayedCard::new(card, seat));
+        self
+    }
+
+    /// Get the number of cards played
+    pub fn len(&self) -> usize {
+        self.plays.len()
+    }
+
+    /// Check if no cards have been played
+    pub fn is_empty(&self) -> bool {
+        self.plays.is_empty()
+    }
+
+    /// Get the lead suit (suit of the first card played)
+    pub fn lead_suit(&self) -> Option<Suit> {
+        self.plays.first().map(|p| suit_of(p.card))
+    }
+
+    /// Get the seat that led to this trick
+    pub fn leader(&self) -> Option<Seat> {
+        self.plays.first().map(|p| p.seat)
+    }
+
+    /// Get the next seat to play
+    pub fn next_to_play(&self) -> Option<Seat> {
+        self.plays.last().map(|p| next_seat(p.seat))
+    }
+}
+
 /// Ordered cards container for move ordering
 #[derive(Default)]
 pub struct OrderedCards {
@@ -499,10 +560,44 @@ impl Solver {
         }
     }
 
+    /// Create a solver for a mid-trick position
+    ///
+    /// Use this when solving from a position where a trick is partially played.
+    /// The hands should contain the cards NOT YET played (excluding cards in partial_trick).
+    ///
+    /// # Arguments
+    /// * `hands` - The remaining cards in each hand (excluding cards in partial_trick)
+    /// * `trump` - Trump suit (0-3) or NOTRUMP (4)
+    /// * `partial_trick` - Cards already played to the current trick
+    ///
+    /// # Returns
+    /// The solver, or None if the partial trick is invalid
+    pub fn new_mid_trick(hands: Hands, trump: usize, partial_trick: &PartialTrick) -> Option<Self> {
+        if partial_trick.is_empty() || partial_trick.len() > 3 {
+            return None;
+        }
+
+        // The leader is the first player in the partial trick
+        let initial_leader = partial_trick.leader()?;
+
+        // num_tricks is based on the largest hand size
+        // Since we're mid-trick, hands have different sizes
+        // Max hand size = hands that haven't played yet = total tricks remaining
+        let max_hand_size = (0..NUM_SEATS).map(|s| hands[s].size()).max().unwrap_or(0);
+        let num_tricks = max_hand_size;
+
+        Some(Solver {
+            hands,
+            trump,
+            initial_leader,
+            num_tricks,
+        })
+    }
+
     /// Solve and return NS tricks
     pub fn solve(&self) -> u8 {
         let mut cutoff_cache = search::CutoffCache::new(16);
-        let mut pattern_cache = super::pattern::PatternCache::new(16);
+        let mut pattern_cache = crate::PatternCache::new(16);
         self.solve_with_caches(&mut cutoff_cache, &mut pattern_cache)
     }
 
@@ -512,12 +607,49 @@ impl Solver {
         cutoff_cache: &mut search::CutoffCache,
         pattern_cache: &mut super::pattern::PatternCache,
     ) -> u8 {
+        self.solve_with_caches_and_partial(cutoff_cache, pattern_cache, None)
+    }
+
+    /// Solve from a mid-trick position with external caches
+    ///
+    /// Use this to evaluate positions where some cards have already been played
+    /// to the current trick.
+    ///
+    /// # Arguments
+    /// * `cutoff_cache` - Cutoff cache for move ordering
+    /// * `pattern_cache` - Pattern cache for transposition table
+    /// * `partial_trick` - Cards already played to the current trick
+    ///
+    /// # Returns
+    /// The number of tricks NS will take with optimal play from this position
+    pub fn solve_mid_trick(
+        &self,
+        cutoff_cache: &mut search::CutoffCache,
+        pattern_cache: &mut super::pattern::PatternCache,
+        partial_trick: &PartialTrick,
+    ) -> u8 {
+        self.solve_with_caches_and_partial(cutoff_cache, pattern_cache, Some(partial_trick))
+    }
+
+    /// Internal solve implementation that handles both normal and mid-trick positions
+    fn solve_with_caches_and_partial(
+        &self,
+        cutoff_cache: &mut search::CutoffCache,
+        pattern_cache: &mut super::pattern::PatternCache,
+        partial_trick: Option<&PartialTrick>,
+    ) -> u8 {
         NODE_COUNT.store(0, Ordering::Relaxed);
         XRAY_COUNT.store(0, Ordering::Relaxed);
         let start = std::time::Instant::now();
         let num_tricks = self.num_tricks;
         let guess = self.guess_tricks();
-        let result = self.mtdf_search_with_caches(num_tricks, guess, cutoff_cache, pattern_cache);
+        let result = self.mtdf_search_with_caches_and_partial(
+            num_tricks,
+            guess,
+            cutoff_cache,
+            pattern_cache,
+            partial_trick,
+        );
         if SHOW_PERF.load(Ordering::Relaxed) {
             let elapsed = start.elapsed();
             let iterations = NODE_COUNT.load(Ordering::Relaxed);
@@ -536,13 +668,14 @@ impl Solver {
         result
     }
 
-    /// MTD(f) search driver with external caches
-    fn mtdf_search_with_caches(
+    /// MTD(f) search driver that handles mid-trick positions
+    fn mtdf_search_with_caches_and_partial(
         &self,
         num_tricks: usize,
         guess: usize,
         cutoff_cache: &mut search::CutoffCache,
         pattern_cache: &mut super::pattern::PatternCache,
+        partial_trick: Option<&PartialTrick>,
     ) -> u8 {
         let mut hands = self.hands;
 
@@ -557,12 +690,13 @@ impl Solver {
                 ns_tricks
             };
 
-            let mut searcher = search::Search::new(
+            let mut searcher = search::Search::new_with_partial_trick(
                 &mut hands,
                 self.trump,
                 self.initial_leader,
                 cutoff_cache,
                 pattern_cache,
+                partial_trick,
             );
             ns_tricks = searcher.search(beta) as i8;
 
@@ -753,5 +887,143 @@ mod tests {
             nodes
         );
         // Note: Expected value needs verification with C++ solver
+    }
+
+    // Mid-trick solving tests
+
+    #[test]
+    #[ignore] // Slow: runs DDS solver
+    fn test_mid_trick_1_card_played() {
+        // 2-trick position: W:S3,H3 N:SA,HA E:SK,HK S:S2,H2
+        // West leads S3, then we solve from North's perspective
+        // Remaining hands after S3 played:
+        // W: H3  N: SA,HA  E: SK,HK  S: S2,H2
+        // PBN format: N:spades.hearts.diamonds.clubs then E, S, W (clockwise)
+        let hands = Hands::from_pbn("N:A.A.. K.K.. 2.2.. .3..").unwrap();
+
+        // Create partial trick with West's S3 already played
+        let mut partial = PartialTrick::new();
+        partial.add(card_of(SPADE, THREE), WEST);
+
+        let solver = Solver::new_mid_trick(hands, NOTRUMP, &partial).unwrap();
+        let mut cutoff_cache = search::CutoffCache::new(16);
+        let mut pattern_cache = crate::PatternCache::new(16);
+
+        let ns_tricks = solver.solve_mid_trick(&mut cutoff_cache, &mut pattern_cache, &partial);
+
+        // North will play SA to win, then lead HA to win = 2 tricks for NS
+        assert_eq!(ns_tricks, 2);
+    }
+
+    #[test]
+    #[ignore] // Slow: runs DDS solver
+    fn test_mid_trick_2_cards_played() {
+        // 2-trick position: W:S3,H3 N:SA,HA E:SK,HK S:S2,H2
+        // West leads S3, North plays SA
+        // Remaining hands after S3 and SA played:
+        // W: H3  N: HA  E: SK,HK  S: S2,H2
+        let hands = Hands::from_pbn("N:.A.. K.K.. 2.2.. .3..").unwrap();
+
+        let mut partial = PartialTrick::new();
+        partial.add(card_of(SPADE, THREE), WEST);
+        partial.add(card_of(SPADE, ACE), NORTH);
+
+        let solver = Solver::new_mid_trick(hands, NOTRUMP, &partial).unwrap();
+        let mut cutoff_cache = search::CutoffCache::new(16);
+        let mut pattern_cache = crate::PatternCache::new(16);
+
+        let ns_tricks = solver.solve_mid_trick(&mut cutoff_cache, &mut pattern_cache, &partial);
+
+        // SA is winning. East plays SK, South plays S2.
+        // NS wins this trick (SA > SK). North leads HA to win = 2 tricks for NS
+        assert_eq!(ns_tricks, 2);
+    }
+
+    #[test]
+    #[ignore] // Slow: runs DDS solver
+    fn test_mid_trick_3_cards_played() {
+        // 2-trick position: W:S3,H3 N:SA,HA E:SK,HK S:S2,H2
+        // West leads S3, North plays SA, East plays SK
+        // Remaining hands after S3, SA, SK played:
+        // W: H3  N: HA  E: HK  S: S2,H2
+        let hands = Hands::from_pbn("N:.A.. .K.. 2.2.. .3..").unwrap();
+
+        let mut partial = PartialTrick::new();
+        partial.add(card_of(SPADE, THREE), WEST);
+        partial.add(card_of(SPADE, ACE), NORTH);
+        partial.add(card_of(SPADE, KING), EAST);
+
+        let solver = Solver::new_mid_trick(hands, NOTRUMP, &partial).unwrap();
+        let mut cutoff_cache = search::CutoffCache::new(16);
+        let mut pattern_cache = crate::PatternCache::new(16);
+
+        let ns_tricks = solver.solve_mid_trick(&mut cutoff_cache, &mut pattern_cache, &partial);
+
+        // SA is winning over SK. South plays S2 to complete trick.
+        // NS wins (SA). North leads HA, EW play. NS wins HA = 2 tricks
+        assert_eq!(ns_tricks, 2);
+    }
+
+    #[test]
+    #[ignore] // Slow: runs DDS solver
+    fn test_mid_trick_trump_overruff() {
+        // Trump contract (spades trump): W leads DA, N can ruff
+        // W: DA,H3  N: SA,HA  E: DK,HK  S: S2,H2
+        // After W leads DA:
+        // W: H3  N: SA,HA  E: DK,HK  S: S2,H2
+        let hands = Hands::from_pbn("N:A.A.. ..K.K 2.2.. .3..").unwrap();
+
+        let mut partial = PartialTrick::new();
+        partial.add(card_of(DIAMOND, ACE), WEST);
+
+        let solver = Solver::new_mid_trick(hands, SPADE, &partial).unwrap();
+        let mut cutoff_cache = search::CutoffCache::new(16);
+        let mut pattern_cache = crate::PatternCache::new(16);
+
+        let ns_tricks = solver.solve_mid_trick(&mut cutoff_cache, &mut pattern_cache, &partial);
+
+        // North ruffs with SA (trumps DA), East plays DK, South plays S2
+        // NS wins trick (SA trumped). Then HA wins = 2 tricks
+        assert_eq!(ns_tricks, 2);
+    }
+
+    #[test]
+    fn test_partial_trick_builder() {
+        let mut partial = PartialTrick::new();
+        assert!(partial.is_empty());
+        assert_eq!(partial.len(), 0);
+
+        partial.add(card_of(SPADE, THREE), WEST);
+        assert!(!partial.is_empty());
+        assert_eq!(partial.len(), 1);
+        assert_eq!(partial.lead_suit(), Some(SPADE));
+        assert_eq!(partial.leader(), Some(WEST));
+        assert_eq!(partial.next_to_play(), Some(NORTH));
+
+        partial.add(card_of(SPADE, ACE), NORTH);
+        assert_eq!(partial.len(), 2);
+        assert_eq!(partial.next_to_play(), Some(EAST));
+    }
+
+    #[test]
+    fn test_new_mid_trick_validation() {
+        let hands = Hands::from_pbn("N:A... K... 2... 3...").unwrap();
+
+        // Empty partial trick should fail
+        let empty = PartialTrick::new();
+        assert!(Solver::new_mid_trick(hands, NOTRUMP, &empty).is_none());
+
+        // 4 cards (complete trick) should fail
+        let mut full = PartialTrick::new();
+        full.add(card_of(SPADE, THREE), WEST);
+        full.add(card_of(SPADE, ACE), NORTH);
+        full.add(card_of(SPADE, KING), EAST);
+        full.add(card_of(SPADE, TWO), SOUTH);
+        assert!(Solver::new_mid_trick(hands, NOTRUMP, &full).is_none());
+
+        // 1-3 cards should work
+        let mut one = PartialTrick::new();
+        one.add(card_of(SPADE, THREE), WEST);
+        assert!(Solver::new_mid_trick(hands, NOTRUMP, &one).is_some());
     }
 }

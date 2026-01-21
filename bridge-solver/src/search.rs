@@ -278,9 +278,13 @@ pub struct Search<'a> {
     // Caches (matching C++ common_bounds_cache and cutoff_cache)
     cutoff_cache: &'a mut CutoffCache,
     pattern_cache: &'a mut PatternCache,
+
+    // Starting depth for mid-trick positions (0 for normal positions)
+    start_depth: usize,
 }
 
 impl<'a> Search<'a> {
+    #[allow(dead_code)]
     pub fn new(
         hands: &'a mut Hands,
         trump: usize,
@@ -288,18 +292,115 @@ impl<'a> Search<'a> {
         cutoff_cache: &'a mut CutoffCache,
         pattern_cache: &'a mut PatternCache,
     ) -> Self {
-        let num_tricks = hands.num_tricks();
+        Self::new_with_partial_trick(hands, trump, initial_leader, cutoff_cache, pattern_cache, None)
+    }
+
+    /// Create a new search, optionally starting from a mid-trick position
+    ///
+    /// If `partial_trick` is provided, the search starts with those cards already played
+    /// to the first trick. The hands should NOT contain the cards in the partial trick.
+    pub fn new_with_partial_trick(
+        hands: &'a mut Hands,
+        trump: usize,
+        initial_leader: Seat,
+        cutoff_cache: &'a mut CutoffCache,
+        pattern_cache: &'a mut PatternCache,
+        partial_trick: Option<&super::bridge_solver::PartialTrick>,
+    ) -> Self {
+        // Compute num_tricks from the largest hand size
+        // For mid-trick positions, hands have different sizes (some have played, some haven't)
+        // The max hand size represents hands that haven't played yet in the current trick,
+        // which equals the total number of tricks remaining
+        let max_hand_size = (0..NUM_SEATS).map(|s| hands[s].size()).max().unwrap_or(0);
+        let num_tricks = max_hand_size;
+
         let mut plays = [PlayState::default(); TOTAL_CARDS];
-        plays[0].seat_to_play = initial_leader;
+        let mut tricks = [Trick::default(); TOTAL_TRICKS];
+
+        // Initialize the starting search depth based on partial trick
+        let start_depth = if let Some(pt) = partial_trick {
+            if pt.is_empty() {
+                plays[0].seat_to_play = initial_leader;
+                0
+            } else {
+                // Set up the partial trick state
+                let lead_suit = suit_of(pt.plays[0].card);
+                tricks[0].lead_suit = lead_suit;
+
+                // Compute all_cards including the partial trick cards
+                let mut all_cards = hands.all_cards();
+                for played in &pt.plays {
+                    all_cards.add(played.card);
+                }
+                tricks[0].all_cards = all_cards;
+
+                // Compute shape from the full hands (including partial trick cards)
+                // We need to temporarily add the partial trick cards back to compute the shape
+                let mut full_hands = *hands;
+                for played in &pt.plays {
+                    full_hands[played.seat].add(played.card);
+                }
+                tricks[0].shape = Shape::from_hands(&full_hands);
+                tricks[0].relative_hands.compute(&full_hands, all_cards);
+
+                // Initialize plays for each card in the partial trick
+                let mut winning_play = 0;
+                let mut winning_card = pt.plays[0].card;
+
+                for (i, played) in pt.plays.iter().enumerate() {
+                    plays[i].seat_to_play = played.seat;
+                    plays[i].card_played = played.card;
+                    plays[i].ns_tricks_won = 0; // No tricks won yet
+
+                    // Determine if this card wins over the current winner
+                    if i == 0 {
+                        plays[i].winning_play = 0;
+                    } else {
+                        let card_wins = {
+                            let c1 = played.card;
+                            let c2 = winning_card;
+                            let s1 = suit_of(c1);
+                            let s2 = suit_of(c2);
+
+                            if s1 == s2 {
+                                higher_rank(c1, c2)
+                            } else if trump < NOTRUMP {
+                                s1 == trump
+                            } else {
+                                false
+                            }
+                        };
+
+                        if card_wins {
+                            winning_play = i;
+                            winning_card = played.card;
+                        }
+                        plays[i].winning_play = winning_play;
+                    }
+                }
+
+                // The next player is after the last played card
+                let next_depth = pt.len();
+                plays[next_depth].seat_to_play = next_seat(pt.plays.last().unwrap().seat);
+                plays[next_depth].ns_tricks_won = 0;
+                plays[next_depth].winning_play = winning_play;
+
+                next_depth
+            }
+        } else {
+            plays[0].seat_to_play = initial_leader;
+            0
+        };
 
         Search {
             hands,
             trump,
             num_tricks,
             plays,
-            tricks: [Trick::default(); TOTAL_TRICKS],
+            tricks,
             cutoff_cache,
             pattern_cache,
+            start_depth,
         }
     }
 
@@ -324,15 +425,16 @@ impl<'a> Search<'a> {
     pub fn search(&mut self, beta: i8) -> u8 {
         #[cfg(feature = "debug_search")]
         eprintln!(
-            "Search::search beta={} num_tricks={} hand_sizes=[{},{},{},{}]",
+            "Search::search beta={} num_tricks={} start_depth={} hand_sizes=[{},{},{},{}]",
             beta,
             self.num_tricks,
+            self.start_depth,
             self.hands[0].size(),
             self.hands[1].size(),
             self.hands[2].size(),
             self.hands[3].size()
         );
-        let result = self.search_with_cache(0, beta);
+        let result = self.search_with_cache(self.start_depth, beta);
         #[cfg(feature = "debug_search")]
         eprintln!(
             "Search::search DONE beta={} result={} hand_sizes=[{},{},{},{}]",
