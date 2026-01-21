@@ -1,6 +1,6 @@
 [package]
 name = "bridge-solver"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "Unlicense"
 description = "Bridge Double-Dummy Solver - Port of macroxue/bridge-solver"
@@ -13,4 +13,13 @@ no_tricks_pruning = []
 no_fast_tricks = []
 no_slow_tricks = []
 
+[[bin]]
+name = "solver-diag"
+path = "src/bin/solver-diag/main.rs"
+
+[[bin]]
+name = "solver"
+path = "src/bin/bridge-solver/main.rs"
+
 [dependencies]
+clap = { version = "4", features = ["derive"] }

@@ -48,9 +48,9 @@ struct Args {
     #[arg(long = "vulnerable")]
     vulnerability: Option<VulnerabilityArg>,
 
-    /// Toggle verbose output - stats are shown by default, -v hides them (matches dealer.exe -v toggle behavior)
+    /// Toggle verbose output - stats are hidden by default, -v shows them (matches dealer.exe -v behavior)
     #[arg(short = 'v', long = "verbose")]
-    toggle_verbose: bool,
+    verbose: bool,
 
     /// Force verbose stats on (cannot be toggled off by -v or PBN output)
     #[arg(short = 'X', long = "stats-on")]
@@ -724,7 +724,8 @@ fn main() {
     // Default is true (stats shown), -v toggles it off
     // -X forces stats on (cannot be toggled off)
     // Note: We intentionally don't replicate dealer.exe's PBN verbose toggle bug
-    let verbose_stats = args.force_verbose || !args.toggle_verbose;
+    // dealer.exe behavior: stats hidden by default, -v shows them
+    let verbose_stats = args.force_verbose || args.verbose;
 
     // Progress meter variables (matches dealer.exe behavior)
     let progress_interval = 10000; // Show progress every 10,000 deals
@@ -1064,6 +1065,7 @@ fn main() {
     let elapsed_secs = elapsed.as_secs_f64();
 
     // Print averages if any were requested (format matches dealer.exe %g format)
+    // dealer.exe outputs averages to stdout without any prefix
     if !averages.is_empty() {
         for (label, _, sum, count) in &averages {
             let avg = if *count > 0 {
@@ -1074,9 +1076,9 @@ fn main() {
             // Output using %g-style formatting to match dealer.exe
             // %g removes trailing zeros and uses shortest representation
             if let Some(label_text) = label {
-                eprintln!("{}: {}", label_text, format_g(avg));
+                println!("{}: {}", label_text, format_g(avg));
             } else {
-                eprintln!("Average: {}", format_g(avg));
+                println!("Average: {}", format_g(avg));
             }
         }
     }
@@ -1086,9 +1088,9 @@ fn main() {
         for (label, _, histogram, range) in &frequencies {
             if let Some(label_text) = label {
                 // dealer.exe format: "Frequency <label>:" - preserve label exactly as defined
-                eprintln!("Frequency {}:", label_text);
+                println!("Frequency {}:", label_text);
             } else {
-                eprintln!("Frequency :");
+                println!("Frequency :");
             }
 
             // Determine range to display
@@ -1112,13 +1114,13 @@ fn main() {
                     .map(|(_, &v)| v)
                     .sum();
                 if low_count > 0 {
-                    eprintln!("Low\t{:8}", low_count);
+                    println!("Low\t{:8}", low_count);
                 }
             }
 
             for val in min_val..=max_val {
                 let count = histogram.get(&val).unwrap_or(&0);
-                eprintln!("{:5}\t{:8}", val, count);
+                println!("{:5}\t{:8}", val, count);
             }
 
             if range.is_some() {
@@ -1129,7 +1131,7 @@ fn main() {
                     .map(|(_, &v)| v)
                     .sum();
                 if high_count > 0 {
-                    eprintln!("High\t{:8}", high_count);
+                    println!("High\t{:8}", high_count);
                 }
             }
         }

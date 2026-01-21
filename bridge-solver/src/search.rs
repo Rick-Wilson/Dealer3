@@ -292,7 +292,14 @@ impl<'a> Search<'a> {
         cutoff_cache: &'a mut CutoffCache,
         pattern_cache: &'a mut PatternCache,
     ) -> Self {
-        Self::new_with_partial_trick(hands, trump, initial_leader, cutoff_cache, pattern_cache, None)
+        Self::new_with_partial_trick(
+            hands,
+            trump,
+            initial_leader,
+            cutoff_cache,
+            pattern_cache,
+            None,
+        )
     }
 
     /// Create a new search, optionally starting from a mid-trick position

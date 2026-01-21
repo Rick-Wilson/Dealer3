@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-21
+
+### Added
+- **solver-diag binary** - Diagnostic tool for bridge solver debugging and analysis
+- **PBN file format specification** - Added documentation for PBN format
+
+### Changed
+- Refactored solver CLI into separate directory structure with clap-based argument parsing
+- Fixed `-v/--verbose` behavior - stats are now hidden by default, `-v` shows them (matches dealer.exe)
+- Average and frequency output now goes to stdout instead of stderr (matches dealer.exe)
+
+### Fixed
+- Verbose flag logic was inverted - now correctly matches dealer.exe behavior
+
 ## [0.3.0] - 2026-01-07
 
 ### Added
