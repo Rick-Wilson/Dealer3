@@ -1,3 +1,3 @@
 [workspace]
-members = ["gnurandom", "dealer-core", "dealer-parser", "dealer-pbn", "dealer-test", "dealer-eval", "dealer", "dealer-dds", "bridge-solver"]
+members = ["gnurandom", "dealer-core", "dealer-parser", "dealer-pbn", "dealer-test", "dealer-eval", "dealer", "dealer-dds"]
 resolver = "2"

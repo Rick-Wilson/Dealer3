@@ -1,13 +1,16 @@
-mod card;
+mod convert;
 mod deal;
 mod fast_deal;
 mod hand;
 mod shape;
 
-pub use card::{Card, Rank, Suit};
-pub use deal::{
-    Deal, DealGenerator, DealGeneratorConfig, DealGeneratorState, DealWorkState, Position,
-};
+// Re-export core types from bridge-types
+pub use bridge_types::{Card, Rank, Suit, Direction};
+
+// Position is an alias for Direction for backwards compatibility
+pub type Position = Direction;
+
+pub use deal::{Deal, DealGenerator, DealGeneratorConfig, DealGeneratorState, DealWorkState};
 pub use fast_deal::{
     generate_deal_from_seed, generate_deal_from_seed_no_predeal, FastDealConfig, FastDealGenerator,
 };

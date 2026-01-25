@@ -53,7 +53,7 @@ impl FastDealConfig {
                     return Err(format!(
                         "Card {:?} already predealt to {}",
                         card,
-                        Position::from_index(p as u8).unwrap().to_char()
+                        Position::from_index(p).unwrap().to_char()
                     ));
                 }
             }
@@ -153,7 +153,7 @@ fn deck_to_deal(deck: &[u8; 52]) -> Deal {
 
     for (slot, &card_idx) in deck.iter().enumerate() {
         let card = Card::from_index(card_idx).unwrap();
-        let position = Position::from_index((slot / 13) as u8).unwrap();
+        let position = Position::from_index(slot / 13).unwrap();
         deal.hand_mut(position).add_card(card);
     }
 

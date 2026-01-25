@@ -1,56 +1,5 @@
-use crate::{Card, Hand};
+use crate::{Card, Hand, Position};
 use gnurandom::{GnuRandom, GnuRandomState};
-
-/// Represents the four positions at a bridge table
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Position {
-    North = 0,
-    East = 1,
-    South = 2,
-    West = 3,
-}
-
-impl Position {
-    /// All positions in standard order
-    pub const ALL: [Position; 4] = [
-        Position::North,
-        Position::East,
-        Position::South,
-        Position::West,
-    ];
-
-    /// Convert from index (0-3)
-    pub fn from_index(index: u8) -> Option<Self> {
-        match index {
-            0 => Some(Position::North),
-            1 => Some(Position::East),
-            2 => Some(Position::South),
-            3 => Some(Position::West),
-            _ => None,
-        }
-    }
-
-    /// Get position as a character (N, E, S, W)
-    pub fn to_char(&self) -> char {
-        match self {
-            Position::North => 'N',
-            Position::East => 'E',
-            Position::South => 'S',
-            Position::West => 'W',
-        }
-    }
-
-    /// Get partner position
-    pub fn partner(&self) -> Position {
-        match self {
-            Position::North => Position::South,
-            Position::South => Position::North,
-            Position::East => Position::West,
-            Position::West => Position::East,
-        }
-    }
-}
 
 /// Represents a complete bridge deal (4 hands of 13 cards each)
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -316,7 +265,7 @@ impl DealGenerator {
         for slot in 0..52 {
             let card_index = self.curdeal[slot];
             let card = Card::from_index(card_index).unwrap();
-            let position = Position::from_index((slot / 13) as u8).unwrap();
+            let position = Position::from_index(slot / 13).unwrap();
             deal.hand_mut(position).add_card(card);
         }
 
@@ -415,7 +364,7 @@ impl DealGenerator {
         for slot in 0..52 {
             let card_index = self.curdeal[slot];
             let card = Card::from_index(card_index).unwrap();
-            let position = Position::from_index((slot / 13) as u8).unwrap();
+            let position = Position::from_index(slot / 13).unwrap();
             deal.hand_mut(position).add_card(card);
         }
         deal.sort_all_hands();
@@ -472,7 +421,7 @@ impl DealGenerator {
         let mut deal = Deal::new();
         for (slot, &card_index) in curdeal.iter().enumerate() {
             let card = Card::from_index(card_index).unwrap();
-            let position = Position::from_index((slot / 13) as u8).unwrap();
+            let position = Position::from_index(slot / 13).unwrap();
             deal.hand_mut(position).add_card(card);
         }
         deal.sort_all_hands();
