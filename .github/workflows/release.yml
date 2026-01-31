@@ -23,30 +23,22 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             dealer_artifact: dealer
-            solver_artifact: bridge-solver
             dealer_asset: dealer-linux-x86_64
-            solver_asset: bridge-solver-linux-x86_64
             strip: true
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             dealer_artifact: dealer.exe
-            solver_artifact: bridge-solver.exe
             dealer_asset: dealer-windows-x86_64.exe
-            solver_asset: bridge-solver-windows-x86_64.exe
             strip: false
           - os: macos-latest
             target: x86_64-apple-darwin
             dealer_artifact: dealer
-            solver_artifact: bridge-solver
             dealer_asset: dealer-macos-x86_64
-            solver_asset: bridge-solver-macos-x86_64
             strip: false
           - os: macos-latest
             target: aarch64-apple-darwin
             dealer_artifact: dealer
-            solver_artifact: bridge-solver
             dealer_asset: dealer-macos-aarch64
-            solver_asset: bridge-solver-macos-aarch64
             strip: false
 
     steps:
@@ -66,21 +58,16 @@ jobs:
       - name: Build dealer binary
         run: cargo build --release --bin dealer --target ${{ matrix.target }}
 
-      - name: Build solver binary
-        run: cargo build --release --bin bridge-solver --target ${{ matrix.target }}
-
       - name: Strip binaries (Linux only)
         if: matrix.strip
         run: |
           strip target/${{ matrix.target }}/release/${{ matrix.dealer_artifact }}
-          strip target/${{ matrix.target }}/release/${{ matrix.solver_artifact }}
 
       - name: Create distribution package
         shell: bash
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/${{ matrix.dealer_artifact }} dist/${{ matrix.dealer_asset }}
-          cp target/${{ matrix.target }}/release/${{ matrix.solver_artifact }} dist/${{ matrix.solver_asset }}
           cp LICENSE dist/
           if [ -f README.md ]; then
             cp README.md dist/
@@ -97,13 +84,6 @@ jobs:
             tar -czf ${{ matrix.dealer_asset }}.tar.gz ${{ matrix.dealer_asset }} LICENSE
           fi
 
-      - name: Create solver tarball (Linux and macOS)
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: |
-          cd dist
-          tar -czf ${{ matrix.solver_asset }}.tar.gz ${{ matrix.solver_asset }} LICENSE
-
       - name: Create dealer zip (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
@@ -115,13 +95,6 @@ jobs:
             7z a ${{ matrix.dealer_asset }}.zip ${{ matrix.dealer_asset }} LICENSE
           fi
 
-      - name: Create solver zip (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        run: |
-          cd dist
-          7z a ${{ matrix.solver_asset }}.zip ${{ matrix.solver_asset }} LICENSE
-
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
@@ -129,9 +102,6 @@ jobs:
             dist/${{ matrix.dealer_asset }}.tar.gz
             dist/${{ matrix.dealer_asset }}.zip
             dist/${{ matrix.dealer_asset }}
-            dist/${{ matrix.solver_asset }}.tar.gz
-            dist/${{ matrix.solver_asset }}.zip
-            dist/${{ matrix.solver_asset }}
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
