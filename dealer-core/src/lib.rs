@@ -5,7 +5,7 @@ mod hand;
 mod shape;
 
 // Re-export core types from bridge-types
-pub use bridge_types::{Card, Rank, Suit, Direction};
+pub use bridge_types::{Card, Direction, Rank, Suit};
 
 // Position is an alias for Direction for backwards compatibility
 pub type Position = Direction;

@@ -33,10 +33,22 @@ impl From<bridge_types::Hand> for crate::Hand {
 impl From<&crate::Deal> for bridge_types::Deal {
     fn from(deal: &crate::Deal) -> Self {
         let mut bt_deal = bridge_types::Deal::new();
-        bt_deal.set_hand(bridge_types::Direction::North, deal.hand(Position::North).into());
-        bt_deal.set_hand(bridge_types::Direction::East, deal.hand(Position::East).into());
-        bt_deal.set_hand(bridge_types::Direction::South, deal.hand(Position::South).into());
-        bt_deal.set_hand(bridge_types::Direction::West, deal.hand(Position::West).into());
+        bt_deal.set_hand(
+            bridge_types::Direction::North,
+            deal.hand(Position::North).into(),
+        );
+        bt_deal.set_hand(
+            bridge_types::Direction::East,
+            deal.hand(Position::East).into(),
+        );
+        bt_deal.set_hand(
+            bridge_types::Direction::South,
+            deal.hand(Position::South).into(),
+        );
+        bt_deal.set_hand(
+            bridge_types::Direction::West,
+            deal.hand(Position::West).into(),
+        );
         bt_deal
     }
 }
@@ -85,13 +97,21 @@ mod tests {
     #[test]
     fn test_deal_round_trip() {
         let mut deal = crate::Deal::new();
-        deal.hand_mut(Position::North).add_card(Card::new(Suit::Spades, Rank::Ace));
-        deal.hand_mut(Position::East).add_card(Card::new(Suit::Hearts, Rank::King));
+        deal.hand_mut(Position::North)
+            .add_card(Card::new(Suit::Spades, Rank::Ace));
+        deal.hand_mut(Position::East)
+            .add_card(Card::new(Suit::Hearts, Rank::King));
 
         let bt_deal: bridge_types::Deal = (&deal).into();
         let back: crate::Deal = bt_deal.into();
 
-        assert_eq!(deal.hand(Position::North).len(), back.hand(Position::North).len());
-        assert_eq!(deal.hand(Position::East).len(), back.hand(Position::East).len());
+        assert_eq!(
+            deal.hand(Position::North).len(),
+            back.hand(Position::North).len()
+        );
+        assert_eq!(
+            deal.hand(Position::East).len(),
+            back.hand(Position::East).len()
+        );
     }
 }
