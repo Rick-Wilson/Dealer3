@@ -146,6 +146,24 @@ Priority features for next implementation:
    - All `unsafe` blocks must have a comment explaining why they're safe
    - No `TODO` comments without issue numbers (except in WIP branches)
 
+## Git Configuration
+
+Use SSH for all GitHub operations:
+- Clone/push/pull: `git@github.com:Rick-Wilson/repo.git` (not `https://`)
+- Remote URLs should use SSH format
+
+## Related Projects
+
+All located at `/Users/rick/Development/GitHub/`:
+
+| Project | Description | Relationship |
+|---------|-------------|--------------|
+| [bridge-types](../bridge-types) | Core bridge types | sibling |
+| [bridge-solver](../bridge-solver) | Double-dummy solver | sibling |
+| [Bridge-Parsers](../Bridge-Parsers) | PBN/LIN file parsing | sibling |
+| [pbn-to-pdf](../pbn-to-pdf) | PDF generation | sibling |
+| [bridge-wrangler](../bridge-wrangler) | CLI tool for PBN operations | sibling |
+
 ## Known Issues
 
 1. ⚠️ Warning: unused function `vulnerability_type_to_vulnerability` in main.rs (cleanup needed)
@@ -282,16 +300,16 @@ compare-dealer -p 10 -s 1 -o test.dlr
 3. Run `cargo test` to verify all tests passing
 4. Check git status to see current branch and changes
 
-## When Finishing a Task
+## Notifications
 
-When you finish work in this workspace, always end your final response
-with exactly one of the following lines, on its own line, as the very last output:
+Send Pushover notifications when work is blocked or completed:
 
-✅ Claude task completed successfully
-❌ Claude task failed
-🛑 Claude task stopped
+```bash
+pushover "message" "title"    # title defaults to "Claude Code"
+```
 
-Use "🛑 Claude task stopped" when waiting for user input or when further
-progress is blocked by missing information.
-
-Do not add any text after the marker.
+**When to notify:**
+- Waiting for user input or permission
+- Task completed after extended work
+- Build/test failures that need attention
+- Any situation where work is paused and user may not notice
