@@ -45,6 +45,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Checkout bridge-encodings (sibling dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: Rick-Wilson/bridge-encodings
+          path: ../bridge-encodings
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
