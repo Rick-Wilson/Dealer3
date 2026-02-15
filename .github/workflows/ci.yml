@@ -24,9 +24,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Checkout bridge-encodings (sibling dependency)
-      run: git clone --depth 1 https://github.com/Rick-Wilson/bridge-encodings.git ../bridge-encodings
-
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@master
       with:
@@ -72,9 +69,6 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Checkout bridge-encodings (sibling dependency)
-      run: git clone --depth 1 https://github.com/Rick-Wilson/bridge-encodings.git ../bridge-encodings
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -133,9 +127,6 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Checkout bridge-encodings (sibling dependency)
-      run: git clone --depth 1 https://github.com/Rick-Wilson/bridge-encodings.git ../bridge-encodings
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
