@@ -63,6 +63,46 @@ jobs:
         run: |
           strip target/${{ matrix.target }}/release/${{ matrix.dealer_artifact }}
 
+      - name: Sign macOS binary
+        if: runner.os == 'macOS'
+        env:
+          DEVELOPER_ID_CERT_BASE64: ${{ secrets.DEVELOPER_ID_CERT_BASE64 }}
+          DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          # Decode and import certificate into a temporary keychain
+          echo "$DEVELOPER_ID_CERT_BASE64" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$DEVELOPER_ID_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k actions build.keychain
+          rm certificate.p12
+
+          # Sign the binary with hardened runtime (required for notarization)
+          BINARY="target/${{ matrix.target }}/release/${{ matrix.dealer_artifact }}"
+          codesign --force --options runtime --sign "Developer ID Application" "$BINARY"
+          codesign --verify --verbose "$BINARY"
+
+      - name: Notarize macOS binary
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          BINARY="target/${{ matrix.target }}/release/${{ matrix.dealer_artifact }}"
+
+          # Notarization requires a zip archive
+          ditto -c -k "$BINARY" notarize.zip
+          xcrun notarytool submit notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          rm notarize.zip
+
       - name: Create distribution package
         shell: bash
         run: |
