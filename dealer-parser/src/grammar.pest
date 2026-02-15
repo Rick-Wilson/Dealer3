@@ -35,7 +35,7 @@ print_stmt = { ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"prin
 // Action block keywords
 condition_stmt = { ^"condition" ~ expr }
 produce_stmt = { ^"produce" ~ literal }
-action_stmt = { ^"action" ~ action_component ~ ("," ~ action_component)* }
+action_stmt = { ^"action" ~ (action_component ~ ("," ~ action_component)*)? }
 dealer_stmt = { ^"dealer" ~ compass }
 vulnerable_stmt = { ^"vulnerable" ~ vulnerability }
 predeal_stmt = { ^"predeal" ~ compass ~ predeal_card ~ ("," ~ predeal_card)* }

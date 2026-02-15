@@ -22,10 +22,15 @@
 
 set -euo pipefail
 
-# Environment variables (with defaults)
-WINDOWS_HOST="${WINDOWS_HOST:-10.211.55.5}"
-WINDOWS_USER="${WINDOWS_USER:-rick}"
-WINDOWS_GITHUB_HOME="${WINDOWS_GITHUB_HOME:-/Users/rick/Development/GitHub}"
+# Environment variables (required — set in ~/.zshrc)
+if [[ -z "${WINDOWS_HOST:-}" ]] || [[ -z "${WINDOWS_USER:-}" ]] || [[ -z "${WINDOWS_GITHUB_HOME:-}" ]]; then
+    echo "Error: Required environment variables not set." >&2
+    echo "Add these to your ~/.zshrc:" >&2
+    echo '  export WINDOWS_HOST="your-windows-ip"' >&2
+    echo '  export WINDOWS_USER="your-windows-username"' >&2
+    echo '  export WINDOWS_GITHUB_HOME="/path/to/your/GitHub"' >&2
+    exit 1
+fi
 
 TIMEOUT=10
 DEALER_ARGS=()
@@ -87,7 +92,10 @@ done
 SSH_OPTS="-o ConnectTimeout=5 -o BatchMode=yes"
 
 # Map G: drive to GitHub folder (must be done each SSH session)
-DRIVE_MAP='net use G: "\\Mac\Home\Development\GitHub" >nul 2>&1 & '
+# Parallels maps \\Mac\Home to macOS $HOME, so strip $HOME prefix
+_REL="${WINDOWS_GITHUB_HOME#$HOME}"
+_UNC="\\\\Mac\\Home${_REL//\//\\}"
+DRIVE_MAP="net use G: \"${_UNC}\" >nul 2>&1 & "
 SSH_TARGET="${WINDOWS_USER}@${WINDOWS_HOST}"
 
 # Run command with timeout (kills if exceeded)
@@ -137,7 +145,7 @@ if [[ -n "$INPUT_FILE" ]]; then
 
     # Convert Mac path to Windows path via G: drive
     # G: maps to WINDOWS_GITHUB_HOME via Parallels shared folders
-    # /Users/rick/Development/GitHub/dealer3/foo.dlr -> G:\dealer3\foo.dlr
+    # e.g. $WINDOWS_GITHUB_HOME/dealer3/foo.dlr -> G:\dealer3\foo.dlr
     if [[ "$ABS_PATH" == "$WINDOWS_GITHUB_HOME"/* ]]; then
         REL_PATH="${ABS_PATH#$WINDOWS_GITHUB_HOME/}"
         WIN_PATH="G:\\${REL_PATH//\//\\}"

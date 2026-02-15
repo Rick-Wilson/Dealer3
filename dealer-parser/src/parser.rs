@@ -1196,4 +1196,23 @@ mod tests {
             _ => panic!("Expected AND operation for triple chain"),
         }
     }
+
+    #[test]
+    fn test_parse_bare_action() {
+        // dealer.exe accepts 'action' without arguments (means no output, just count)
+        let program = parse_program("action").unwrap();
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Action {
+                averages,
+                frequencies,
+                format,
+            } => {
+                assert!(averages.is_empty());
+                assert!(frequencies.is_empty());
+                assert!(format.is_none());
+            }
+            _ => panic!("Expected Action statement"),
+        }
+    }
 }

@@ -31,7 +31,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOCAL_REF_DEALER="/Users/rick/Development/GitHub/Dealer-cleanup/dealer"
+# Reference dealer binary — defaults to Dealer-cleanup sibling repo
+LOCAL_REF_DEALER="${DEALER_REF:-$(cd "$SCRIPT_DIR/../.." 2>/dev/null && pwd)/Dealer-cleanup/dealer}"
 
 TIMEOUT=10
 DEALER_ARGS=()
@@ -132,7 +133,8 @@ if [[ -z "$REF_DEALER" ]]; then
         REF_DEALER="$LOCAL_REF_DEALER"
     else
         echo "Error: Reference dealer not found at $LOCAL_REF_DEALER" >&2
-        echo "Build it with: cd /Users/rick/Development/GitHub/Dealer-cleanup && make" >&2
+        echo "Build it with: cd $(dirname "$SCRIPT_DIR")/../Dealer-cleanup && make" >&2
+        echo "Or set DEALER_REF=/path/to/dealer in your environment" >&2
         exit 1
     fi
 fi
@@ -186,8 +188,8 @@ run_comparison() {
     shift
     local args=("$@")
 
-    # Build Rust-specific args
-    local rust_args=(-t "$TIMEOUT" -X)
+    # Build Rust-specific args (--legacy for RNG-compatible output)
+    local rust_args=(--legacy -t "$TIMEOUT" -X)
     if [[ -n "$RUST_THREADS" ]]; then
         rust_args+=(-R "$RUST_THREADS")
     fi
@@ -291,8 +293,8 @@ if [[ -n "$RUST_THREADS" ]]; then
 fi
 echo ""
 
-# Build Rust-specific args for full test
-RUST_SPECIFIC_ARGS=(-t "$TIMEOUT" -X)
+# Build Rust-specific args for full test (--legacy for RNG-compatible output)
+RUST_SPECIFIC_ARGS=(--legacy -t "$TIMEOUT" -X)
 if [[ -n "$RUST_THREADS" ]]; then
     RUST_SPECIFIC_ARGS+=(-R "$RUST_THREADS")
 fi

@@ -100,6 +100,11 @@ struct Args {
     #[arg(short = 'W', long = "west")]
     west_predeal: Option<String>,
 
+    /// Read deals from a file instead of generating random ones.
+    /// Supports PBN and oneline formats (auto-detected).
+    #[arg(long = "input-deals", value_name = "SOURCE")]
+    input_deals: Option<String>,
+
     // Deprecated switches - parse them to show helpful error messages
     /// DEPRECATED: 2-way swapping mode (not supported - incompatible with predeal)
     #[arg(short = '2', hide = true)]
@@ -717,6 +722,22 @@ fn main() {
         || fast_predeal_config.predeal_count(Position::South) > 0
         || fast_predeal_config.predeal_count(Position::West) > 0;
 
+    // Validate --input-deals conflicts
+    if args.input_deals.is_some() {
+        if has_predeal {
+            eprintln!(
+                "Error: --input-deals cannot be combined with predeal (command-line or script)"
+            );
+            std::process::exit(1);
+        }
+        if args.seed.is_some() {
+            eprintln!("Warning: --seed is ignored when using --input-deals");
+        }
+        if args.legacy {
+            eprintln!("Warning: --legacy is ignored when using --input-deals");
+        }
+    }
+
     let mut produced = 0;
     let mut generated: usize = 0;
 
@@ -867,8 +888,91 @@ fn main() {
             }
         };
 
-    // Choose execution mode: legacy (single-threaded, dealer.exe compatible) or fast (parallel)
-    if args.legacy {
+    // Choose execution mode: input-deals, legacy, or fast (parallel)
+    if let Some(ref input_deals_source) = args.input_deals {
+        // Input-deals mode: read deals from file, apply filter
+        use bridge_encodings::DealReader;
+        use std::io::BufReader;
+
+        let file = std::fs::File::open(input_deals_source).unwrap_or_else(|e| {
+            eprintln!(
+                "Error opening input deals file '{}': {}",
+                input_deals_source, e
+            );
+            std::process::exit(1);
+        });
+        let deal_reader = DealReader::new(BufReader::new(file));
+
+        for deal_result in deal_reader {
+            // Check timeout every 1000 deals
+            if let Some(timeout_secs) = args.timeout {
+                if generated.is_multiple_of(1000) {
+                    let elapsed = start_time.elapsed().unwrap().as_secs();
+                    if elapsed >= timeout_secs {
+                        timed_out = true;
+                        eprintln!(
+                            "Timeout after {} seconds ({} generated, {} produced)",
+                            elapsed, generated, produced
+                        );
+                        break;
+                    }
+                }
+            }
+
+            let bt_deal = match deal_result {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("Error reading deal: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Convert bridge_types::Deal → dealer_core::Deal
+            let deal: Deal = bt_deal.into();
+            generated += 1;
+
+            // Show progress meter if enabled
+            if args.progress && generated - last_progress_report >= progress_interval {
+                let elapsed = start_time.elapsed().unwrap().as_secs_f64();
+                eprintln!(
+                    "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
+                    generated, produced, elapsed
+                );
+                last_progress_report = generated;
+            }
+
+            // Evaluate constraint
+            let eval_result = match constraint {
+                Some(expr) => eval_with_context(expr, &program_variables, &deal),
+                None => Ok(1),
+            };
+
+            match eval_result {
+                Ok(result) if result != 0 => {
+                    process_matching_deal(
+                        &deal,
+                        produced,
+                        &mut averages,
+                        &mut frequencies,
+                        &mut csv_writer,
+                    );
+                    produced += 1;
+                    if produced >= produce_count {
+                        break;
+                    }
+                }
+                Ok(_) => continue,
+                Err(e) => {
+                    eprintln!("Evaluation error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+
+            if generated >= max_generate {
+                break;
+            }
+        }
+    } else if args.legacy {
         // Legacy mode: single-threaded with gnurandom for exact dealer.exe compatibility
         // Initialize the legacy DealGenerator and apply predeal
         let mut generator = DealGenerator::new(seed);
@@ -1143,7 +1247,11 @@ fn main() {
     if verbose_stats {
         println!("Generated {} hands", generated);
         println!("Produced {} hands", produced);
-        println!("Initial random seed {}", seed);
+        if let Some(ref source) = args.input_deals {
+            println!("Input deals from {}", source);
+        } else {
+            println!("Initial random seed {}", seed);
+        }
         println!("Time needed  {:7.3} sec", elapsed_secs);
     }
 
