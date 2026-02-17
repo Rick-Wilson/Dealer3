@@ -531,6 +531,7 @@ fn main() {
 
     // Extract action block directives from the program
     let mut produce_count_from_input: Option<usize> = None;
+    let mut generate_count_from_input: Option<usize> = None;
     let mut format_from_input: Option<OutputFormat> = None;
     let mut dealer_from_input: Option<DealerPosition> = None;
     let mut vuln_from_input: Option<VulnerabilityArg> = None;
@@ -555,6 +556,7 @@ fn main() {
     for statement in &program.statements {
         match statement {
             Statement::Produce(n) => produce_count_from_input = Some(*n),
+            Statement::Generate(n) => generate_count_from_input = Some(*n),
             Statement::Action {
                 averages: avg_specs,
                 frequencies: freq_specs,
@@ -618,7 +620,10 @@ fn main() {
     // dealer.exe defaults: -g 10000000 (10M), -p 40
     // IMPORTANT: We must respect the generate limit to match dealer.exe behavior.
     // Without this, dealer3 could run forever trying to produce rare hands.
-    let max_generate = args.generate.unwrap_or(10_000_000);
+    let max_generate = args
+        .generate
+        .or(generate_count_from_input)
+        .unwrap_or(10_000_000);
     let produce_count = args
         .produce
         .or(produce_count_from_input)

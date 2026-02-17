@@ -79,6 +79,13 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             })?;
             Ok(Statement::Produce(value))
         }
+        Rule::generate_stmt => {
+            let literal = inner.into_inner().next().unwrap();
+            let value = literal.as_str().parse::<usize>().map_err(|_| ParseError {
+                message: format!("Invalid generate count: {}", literal.as_str()),
+            })?;
+            Ok(Statement::Generate(value))
+        }
         Rule::action_stmt => {
             let mut averages = Vec::new();
             let mut frequencies = Vec::new();
@@ -1214,5 +1221,45 @@ mod tests {
             }
             _ => panic!("Expected Action statement"),
         }
+    }
+
+    #[test]
+    fn test_parse_generate_stmt() {
+        let program = parse_program("generate 1000000").unwrap();
+        assert_eq!(program.statements.len(), 1);
+        assert_eq!(program.statements[0], Statement::Generate(1_000_000));
+    }
+
+    #[test]
+    fn test_generate_does_not_clobber_condition() {
+        // Bug fix: 'generate 1000000' was parsed as two expressions
+        // (Variable("generate") and Literal(1000000)), clobbering the real condition
+        let input = "hcp(north) >= 15\ngenerate 1000000\nproduce 30\naction\nprintoneline,";
+        let program = parse_program(input).unwrap();
+
+        // Find the expression/condition statement
+        let has_condition = program.statements.iter().any(|s| {
+            matches!(
+                s,
+                Statement::Expression(_) | Statement::Condition(_)
+            )
+        });
+        assert!(has_condition, "Should have a condition expression");
+
+        // Verify generate is parsed as its own statement type, not as Expression
+        let has_generate = program
+            .statements
+            .iter()
+            .any(|s| matches!(s, Statement::Generate(1_000_000)));
+        assert!(has_generate, "Should have Generate(1000000) statement");
+
+        // Verify no Expression(Literal(1000000)) that would clobber the condition
+        let has_literal_expr = program.statements.iter().any(|s| {
+            matches!(s, Statement::Expression(Expr::Literal(1_000_000)))
+        });
+        assert!(
+            !has_literal_expr,
+            "Should NOT have Expression(Literal(1000000))"
+        );
     }
 }

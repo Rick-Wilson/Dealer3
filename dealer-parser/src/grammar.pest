@@ -15,6 +15,7 @@ program = { SOI ~ (dealer_statement ~ ("\n" | ";" | ",")?)* ~ EOI }
 dealer_statement = {
     condition_stmt
     | produce_stmt
+    | generate_stmt
     | action_stmt
     | dealer_stmt
     | vulnerable_stmt
@@ -35,6 +36,7 @@ print_stmt = { ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"prin
 // Action block keywords
 condition_stmt = { ^"condition" ~ expr }
 produce_stmt = { ^"produce" ~ literal }
+generate_stmt = { ^"generate" ~ literal }
 action_stmt = { ^"action" ~ (action_component ~ ("," ~ action_component)*)? }
 dealer_stmt = { ^"dealer" ~ compass }
 vulnerable_stmt = { ^"vulnerable" ~ vulnerability }

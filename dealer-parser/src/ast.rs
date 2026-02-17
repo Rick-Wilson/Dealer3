@@ -17,6 +17,8 @@ pub enum Statement {
     Condition(Expr),
     /// Produce statement: produce N
     Produce(usize),
+    /// Generate statement: generate N
+    Generate(usize),
     /// Action statement: action average "label" expr, frequency "label" expr, printpbn/printall/etc
     /// Can contain multiple averages, frequencies, and optionally a format
     Action {
